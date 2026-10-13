@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cinema Hub — Twoje kino w jednym miejscu</title>
+  <meta name="description" content="Cinema Hub: prywatny panel filmów i seriali, klient Android TV i własne źródła. Instalacja przez DCC → SKLEP → Media → Cinema Hub → Instaluj na Windows, Linux i Raspberry Pi.">
+  <meta name="theme-color" content="#0b0d12">
+  <meta property="og:title" content="Cinema Hub — Twoje kino w jednym miejscu">
+  <meta property="og:description" content="Zobacz aplikację i zainstaluj kontener jednym kliknięciem przez DCC. Windows, Linux, Raspberry Pi oraz klient Android TV.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://hattimon.github.io/CINEMA-HUB/">
+  <meta property="og:image" content="https://hattimon.github.io/CINEMA-HUB/assets/screenshots/catalog-films.jpg">
+  <link rel="canonical" href="https://hattimon.github.io/CINEMA-HUB/">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Przejdź do treści</a>
+  <header class="header wrap">
+    <a class="brand" href="#" aria-label="Cinema Hub — początek strony"><img src="assets/icon.svg" width="28" height="28" alt="">CINEMA HUB</a>
+    <nav aria-label="Nawigacja strony"><a href="#zrzuty">Zrzuty ekranu</a><a href="#instalacja">Instalacja</a><a href="https://github.com/hattimon/CINEMA-HUB">GitHub ↗</a></nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <h1>Twoje kino.<br><span>W jednym miejscu.</span></h1>
+        <p>Filmy i seriale z Twoich źródeł. Przejrzysty katalog z okładkami, własne profile i aplikacja na Android TV. Serwer działa u Ciebie — w kontenerze Docker.</p>
+        <div class="actions"><a class="button primary" href="#instalacja">Zainstaluj przez DCC <span aria-hidden="true">↓</span></a><a class="button secondary" href="https://github.com/hattimon/CINEMA-HUB/releases/latest">Pobierz aplikację ↗</a></div>
+        <p class="platforms">Windows · Linux · Raspberry Pi · Android TV</p>
+      </div>
+      <a class="hero-screen shot" href="assets/screenshots/catalog-films.jpg" data-caption="Katalog filmów — rzeczywisty ekran Cinema Hub" aria-label="Powiększ zrzut katalogu filmów"><img src="assets/screenshots/catalog-films.jpg" width="1032" height="871" alt="Cinema Hub: ciemny katalog filmów z okładkami, wyszukiwarką i wyborem źródła" fetchpriority="high"></a>
+    </section>
+    <section class="features wrap" aria-label="Najważniejsze funkcje">
+      <article><h2>Własne źródła</h2><p>Osobne ustawienia i logowanie. Filman, Vider, Przystań oraz własne serwery HTTP, Plex, WebDAV, FTP i S3.</p></article>
+      <article><h2>Twój profil</h2><p>Ulubione, lista „Chcę obejrzeć” i historia postępu. Wróć do seansu na swoim urządzeniu.</p></article>
+      <article><h2>Na dużym ekranie</h2><p>Klient Android TV z obsługą pilota i natywnym odtwarzaczem. Połącz telewizor z adresem swojego serwera.</p></article>
+    </section>
+    <section id="zrzuty" class="section wrap">
+      <div class="section-head"><h2>Zobacz Cinema Hub</h2><p>Rzeczywiste zrzuty aplikacji. Kliknij obraz, aby go powiększyć.</p></div>
+      <div class="gallery">
+        <figure><a class="shot" href="assets/screenshots/catalog-films.jpg" data-caption="Filmy — okładki, opisy, oceny i wybór źródła"><img src="assets/screenshots/catalog-films.jpg" width="1032" height="871" loading="lazy" alt="Katalog filmów Cinema Hub z okładkami i ocenami"></a><figcaption><h3>Filmy w jednym katalogu</h3><p>Okładki, opisy, oceny oraz wyszukiwanie i filtry dostępne dla wybranego źródła.</p></figcaption></figure>
+        <figure><a class="shot" href="assets/screenshots/catalog-series.jpg" data-caption="Seriale — osobny widok biblioteki"><img src="assets/screenshots/catalog-series.jpg" width="1032" height="871" loading="lazy" alt="Osobny katalog seriali Cinema Hub z okładkami"></a><figcaption><h3>Osobny widok seriali</h3><p>Przeglądaj seriale i dostępne odcinki. Obsługa sezonów zależy od adaptera źródła.</p></figcaption></figure>
+      </div>
+      <p class="note">Zawartość katalogu pochodzi ze skonfigurowanych źródeł. Cinema Hub nie zawiera filmów; możliwości wyszukiwania, filtrów i sezonów zależą od źródła. <a href="https://github.com/hattimon/CINEMA-HUB/blob/main/docs/SOURCES.md">Sprawdź obsługę źródeł ↗</a></p>
+    </section>
+    <section id="instalacja" class="install-band">
+      <div class="wrap install-layout">
+        <div><h2>Jeden klik.<br>Własny kontener.</h2><p>Cinema Hub jest już w sklepie aplikacji <a href="https://github.com/hattimon/DCC">Docker Control Center (DCC)</a>, w kategorii <strong>Media</strong>.</p><p class="path">DCC → SKLEP → Media → Cinema Hub → Instaluj</p>
+          <ol class="steps"><li><strong>Wybierz host</strong><span>Lokalny Docker na Windows lub Linux, albo obsługiwany host zdalny.</span></li><li><strong>Otwórz SKLEP → Media</strong><span>Wybierz pozycję Cinema Hub.</span></li><li><strong>Kliknij Instaluj</strong><span>DCC uruchomi kontener z gotową konfiguracją.</span></li></ol>
+          <a class="button primary" href="https://github.com/hattimon/DCC">Pobierz DCC ↗</a><p class="note">Windows wymaga Docker Desktop z kontenerami Linux. Linux i Raspberry Pi wymagają działającego Dockera; na Pi użyj systemu 64-bit ARM64.</p>
+        </div>
+        <figure class="dcc"><a class="shot" href="assets/screenshots/dcc-store.png" data-caption="DCC → SKLEP → Media → Cinema Hub → Instaluj"><img src="assets/screenshots/dcc-store.png" width="1156" height="926" loading="lazy" alt="Sklep DCC: aplikacja Cinema Hub w kategorii Media i przycisk Instaluj"></a><figcaption>Cinema Hub w sklepie DCC · kategoria Media</figcaption></figure>
+      </div>
+    </section>
+    <section id="pobierz" class="section wrap downloads">
+      <div><h2>Wybierz swój ekran.</h2><p>Serwer w Dockerze. Panel w przeglądarce. APK na telewizorze.</p></div>
+      <div class="download-list">
+        <a href="https://github.com/hattimon/CINEMA-HUB/blob/main/docs/INSTALL.md"><span><strong>Windows i Linux</strong><small>Gotowy obraz Docker · amd64 / arm64</small></span><span aria-hidden="true">↗</span></a>
+        <a href="https://github.com/hattimon/CINEMA-HUB/blob/main/docs/INSTALL.md#raspberry-pi"><span><strong>Raspberry Pi</strong><small>Instalacja ARM64 i trwały wolumen danych</small></span><span aria-hidden="true">↗</span></a>
+        <a href="https://github.com/hattimon/CINEMA-HUB/releases/latest"><span><strong>Android TV / Google TV</strong><small>APK do pobrania · obsługa pilota</small></span><span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </main>
+  <footer class="wrap footer"><a class="brand" href="https://github.com/hattimon/CINEMA-HUB">CINEMA HUB</a><p>Projekt <a href="https://github.com/hattimon">hattimon</a> · <a href="https://github.com/hattimon/CINEMA-HUB">Kod i dokumentacja</a> · <a href="https://github.com/hattimon/CINEMA-HUB/releases/latest">Wydania</a></p><small>Okładki i nazwy widoczne na zrzutach należą do ich właścicieli.</small></footer>
+  <dialog id="viewer" aria-labelledby="viewer-caption"><button class="viewer-close" type="button" aria-label="Zamknij powiększenie">×</button><img id="viewer-image" alt=""><p id="viewer-caption"></p></dialog>
+  <script src="gallery.js" defer></script>
+</body>
+</html>

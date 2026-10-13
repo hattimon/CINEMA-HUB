@@ -14,6 +14,14 @@ Każde konto ma własne logowania do źródeł, ustawienia, ulubione, historię 
 
 <p align="center"><a href="https://github.com/hattimon/CINEMA-HUB/releases/latest"><strong>Pobierz najnowsze wydanie</strong></a> · <a href="docs/INSTALL.md">Instalacja Docker</a> · <a href="docs/ANDROID-TV.md">Android TV i pilot</a> · <a href="docs/SOURCES.md">Konfiguracja źródeł</a></p>
 
+## Instalacja jednym kliknięciem przez DCC
+
+Cinema Hub jest dostępny w katalogu aplikacji **[Docker Control Center (DCC)](https://github.com/hattimon/DCC)**, w kategorii **Media**.
+
+Wybierz host Docker na Windows lub Linux, otwórz sklep aplikacji i kliknij **SKLEP → Media → Cinema Hub → Instaluj**. DCC uruchomi aplikację w kontenerze bez ręcznego wpisywania parametrów. Na Windows wymagany jest działający Docker Desktop w trybie kontenerów Linux. Możesz także wybrać obsługiwany host zdalny, np. Raspberry Pi z systemem 64-bit i Dockerem.
+
+**[Strona aplikacji i zrzuty ekranu](https://hattimon.github.io/CINEMA-HUB/)** · **[DCC — pobieranie i instrukcja](https://github.com/hattimon/DCC)**
+
 ## Co oferuje aplikacja
 
 | Funkcja | Opis |
