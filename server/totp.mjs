@@ -1,0 +1,8 @@
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+export function base32(bytes){let bits=0,value=0,result='';for(const byte of bytes){value=(value<<8)|byte;bits+=8;while(bits>=5){bits-=5;result+=alphabet[(value>>>bits)&31];}value&=(1<<bits)-1;}if(bits)result+=alphabet[(value<<(5-bits))&31];return result;}
+function decode(secret){let bits=0,value=0;const bytes=[];for(const char of secret.toUpperCase().replace(/[=\s]/g,'')){const n=alphabet.indexOf(char);if(n<0)throw new Error('Invalid authenticator key.');value=(value<<5)|n;bits+=5;if(bits>=8){bits-=8;bytes.push((value>>>bits)&255);value&=(1<<bits)-1;}}return Buffer.from(bytes);}
+export const newSecret=()=>base32(randomBytes(20));
+// RFC 6238: a 30-second counter, HMAC-SHA1 and dynamic truncation.
+export function totp(secret,time=Date.now(),digits=6){const counter=Math.floor(time/30000);if(counter<0)throw new Error('Invalid time.');const block=Buffer.alloc(8);block.writeBigUInt64BE(BigInt(counter));const digest=createHmac('sha1',Buffer.isBuffer(secret)?secret:decode(secret)).update(block).digest();const offset=digest[digest.length-1]&15;return String((digest.readUInt32BE(offset)&0x7fffffff)%10**digits).padStart(digits,'0');}
+export function matchingStep(secret,code,time=Date.now(),last=-1){if(!/^\d{6}$/.test(code))return undefined;const step=Math.floor(time/30000);for(const candidate of [step,step-1,step+1]){if(candidate<0||candidate<=last)continue;const expected=totp(secret,candidate*30000);if(timingSafeEqual(Buffer.from(expected),Buffer.from(code)))return candidate;}return undefined;}

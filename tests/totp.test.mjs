@@ -1,0 +1,5 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { base32,totp,matchingStep } from '../server/totp.mjs';
+test('Authenticator matches independent RFC 6238 SHA1 vectors',()=>{const secret=Buffer.from('12345678901234567890');for(const [seconds,expected] of [[59,'94287082'],[1111111109,'07081804'],[1111111111,'14050471'],[1234567890,'89005924'],[2000000000,'69279037'],[20000000000,'65353130']]){assert.equal(totp(secret,seconds*1000,8),expected);assert.equal(totp(base32(secret),seconds*1000,8),expected);}});
+test('Authenticator tolerates one time step and rejects expired and replayed codes',()=>{const secret=base32(Buffer.from('12345678901234567890')),time=1234567890000,step=Math.floor(time/30000);assert.equal(matchingStep(secret,totp(secret,time),time),step);assert.equal(matchingStep(secret,totp(secret,time-30000),time),step-1);assert.equal(matchingStep(secret,totp(secret,time-60000),time),undefined);assert.equal(matchingStep(secret,totp(secret,time),time,step),undefined);assert.equal(matchingStep(secret,'bad',time),undefined);});

@@ -1,0 +1,13 @@
+export type User={id:string;username:string;role:'admin'|'user';initial:boolean};
+export type Settings={theme:'violet'|'cyan'|'amber'|'rose';style:'cinematic'|'compact'|'classic';sounds:boolean;soundStyle:'soft'|'arcade'|'minimal';autoplay:boolean;autoFallback:boolean;preferredVersion:string;preferredHosts:string[];defaultSources:string[];defaultDestination:string};
+export type Source={id:string;name:string;type:string;url:string;enabled:boolean;hasCredentials?:boolean;options?:{startFolder?:string;recursive?:boolean}};
+export type Destination={id:string;name:string;type:string;config:{url:string;prefix:string;bucket:string;region:string}};
+export type Episode={url:string;title:string;season:number;number:number};
+export type Progress={episode:string;position:number;duration:number;completed:boolean;season?:number;number?:number;title?:string};
+export type Item={id:string;sourceId:string;sourceName:string;url:string;title:string;kind:string;poster:string;backdrop?:string;description:string;year:number|null;rating:number|null;ratingScale:number;imdb?:number|null;quality?:string;version?:string;genres?:string[];country?:string[];episodes?:Episode[];favorite?:boolean;watchlist?:boolean;progress?:Progress|null};
+export type Filter={key:string;label:string;multiple:boolean;options:{value:string;label:string;selected?:boolean}[]};
+export type Group={sourceId:string;sourceName:string;items:Item[];filters:Filter[];pages:{page:number;label:string}[];folders?:{path:string;title:string}[];challenge?:boolean;loggedIn?:boolean;searchScope?:string;device?:boolean};
+export type Playable={id:string;host:string;version:string;quality:string;playbackId:string;kind?:string};
+export type Check={id:string;itemId?:string;episodeURL?:string;status:string;checked:number;total:number;ready:Playable[];attempted?:string[];currentHost?:string;lastError?:string;phase?:string;retryAfter?:number};
+export type Download={id:string;title:string;filename:string;destination:string;status:string;bytes:number;itemId:string;episode?:Episode;error?:string;remotePath?:string};
+export type PlayerState={item:Item;episode?:Episode;source?:Playable;localURL?:string;position?:number;pending?:boolean};

@@ -1,0 +1,23 @@
+import { useState } from 'react';
+import { Film,ChevronRight,ShieldCheck } from 'lucide-react';
+import { api } from './api';
+import type { User } from './types';
+export default function Login({onLogin}:{onLogin:(user:User)=>void}){
+  const [mode,setMode]=useState<'login'|'register'|'recover'>('login'),[method,setMethod]=useState('backup');
+  const [username,setUsername]=useState(''),[password,setPassword]=useState(''),[repeat,setRepeat]=useState(''),[code,setCode]=useState(''),[remember,setRemember]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const change=(next:typeof mode)=>{setMode(next);setError('');setPassword('');setRepeat('');setCode('');};
+  const submit=async(event:React.FormEvent)=>{event.preventDefault();setBusy(true);setError('');try{if(mode!=='login'&&password!==repeat)throw new Error('Hasła muszą być takie same.');if(mode==='recover'){await api('/auth/'+(method==='authenticator'?'recover-authenticator':'recover'),{username,code,password});change('login');setError('Hasło zmienione. Zaloguj się nowym hasłem.');}else onLogin(await api<User>('/auth/'+(mode==='register'?'register':'login'),{username,password,remember}));}catch(error){setError((error as Error).message);}finally{setBusy(false);}};
+  return <main className="login-page"><div className="login-atmosphere"/><form className="login-card" onSubmit={event=>void submit(event)}>
+    <div className="brand"><Film/> CINEMA HUB</div><h1>{mode==='register'?'Załóż swoje konto.':mode==='recover'?'Odzyskaj konto.':<>Twój seans<br/>zaczyna się tutaj.</>}</h1>
+    <p>{mode==='register'?'Konto jest tworzone na tym serwerze. Będziesz mieć własne źródła, logowania i ustawienia.':mode==='recover'?'Użyj zapisanego wcześniej kodu lub skonfigurowanej aplikacji Google Authenticator.':'Zaloguj się do swojej prywatnej biblioteki.'}</p>
+    <label>Użytkownik<input required minLength={mode==='register'?3:1} maxLength={40} autoComplete="username" autoFocus value={username} onChange={event=>setUsername(event.target.value)}/></label>
+    {mode==='recover'?<><label>Sposób odzyskiwania<select value={method} onChange={event=>{setMethod(event.target.value);setCode('');}}><option value="backup">Zapisany kod jednorazowy</option><option value="authenticator">Google Authenticator — 6 cyfr</option></select></label><label>{method==='authenticator'?'Kod z Google Authenticator':'Zapisany kod odzyskiwania'}<input required autoComplete="one-time-code" inputMode={method==='authenticator'?'numeric':'text'} maxLength={method==='authenticator'?6:40} pattern={method==='authenticator'?'[0-9]{6}':undefined} value={code} onChange={event=>setCode(event.target.value)}/></label><p className="form-note">Kody jednorazowe generujesz i zapisujesz po zalogowaniu w Ustawienia → Konto. Google Authenticator trzeba wcześniej sparować z kontem. Kod nie jest wysyłany mailem.</p></>:null}
+    <label>{mode==='recover'?'Nowe hasło':'Hasło'}<input required type="password" minLength={mode==='login'?1:8} maxLength={256} autoComplete={mode==='login'?'current-password':'new-password'} value={password} onChange={event=>setPassword(event.target.value)}/></label>
+    {mode!=='login'?<label>Powtórz hasło<input required type="password" minLength={8} autoComplete="new-password" value={repeat} onChange={event=>setRepeat(event.target.value)}/></label>:<label className="remember"><input type="checkbox" checked={remember} onChange={event=>setRemember(event.target.checked)}/>Zapamiętaj logowanie przez 30 dni</label>}
+    {error?<p role="status" className={error.startsWith('Hasło zmienione')?'form-note':'error-text'}>{error}</p>:null}
+    <button className="button primary" disabled={busy}>{busy?'Przetwarzam…':mode==='register'?'Utwórz konto':mode==='recover'?'Ustaw nowe hasło':'Wejdź do swojego kina'}<ChevronRight size={18}/></button>
+    {mode==='login'?<><button type="button" className="button secondary" onClick={()=>change('register')}>Załóż nowe konto</button><button type="button" className="button ghost" onClick={()=>change('recover')}>Odzyskaj hasło</button></>:<button type="button" className="button ghost" onClick={()=>change('login')}>Wróć do logowania</button>}
+    <details className="login-help"><summary>Nie masz kodu? Pomoc administratora</summary><p>Administrator może ustawić nowe hasło lokalnie na hoście kontenera. Ta komenda działa także dla zwykłych użytkowników:</p><code>docker compose exec cinema node server/cli.mjs reset-password --user TWOJ_LOGIN</code></details>
+    <div className="login-foot"><ShieldCheck size={14}/>Twoje źródła i historia są prywatne.</div>
+  </form></main>;
+}

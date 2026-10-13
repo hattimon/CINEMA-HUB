@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.CinemaHub" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item><item name="android:colorAccent">#a28aff</item>
+        <item name="android:windowBackground">#0b0d12</item><item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
