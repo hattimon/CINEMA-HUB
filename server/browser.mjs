@@ -7,6 +7,7 @@ import { sameSourceURL, isAdvertisement, networkURL, verifyMedia } from './net.m
 import { assertSourceAvailable,blockSource,parseRetryAfter } from './limits.mjs';
 import { isViderVideo,viderURL } from './vider-parser.mjs';
 import { viderPageReady } from './vider-page.mjs';
+import { browserHeaded } from './browser-mode.mjs';
 
 async function clearClickAdvertisements(page,selector,origin) {
   await page.evaluate(({selector,origin})=>{
@@ -69,7 +70,7 @@ export class SourceBrowser {
     const executablePath=process.env.CHROMIUM_PATH;
     // Keep the same normal Chromium mode for login and later portal reads.
     // Xvfb is already available in containers; CAPTCHA remains user-operated.
-    const visible=headed||!!process.env.DISPLAY&&['filman','vider'].includes(source.type);
+    const visible=browserHeaded(source.type,headed);
     const context=await chromium.launchPersistentContext(directory,{timeout:30000,headless:!visible,executablePath:executablePath||undefined,viewport:headed?null:{width:1280,height:800},acceptDownloads:false,serviceWorkers:'block',args:['--disable-dev-shm-usage','--disk-cache-size=1','--media-cache-size=1','--autoplay-policy=no-user-gesture-required',...(visible?['--window-size=1600,1160','--window-position=0,0']:[])],userAgent:'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'});
     await context.route('**/*',async route=>{const address=route.request().url();if(isAdvertisement(address))return route.abort();return route.continue();});
     context.on('page',page=>{if(!headed)page.on('popup',popup=>{if(isAdvertisement(popup.url()))popup.close().catch(()=>{});});});
@@ -305,7 +306,8 @@ export class SourceBrowser {
             }
             let found=[];try{found=await frame.locator('video').evaluateAll(videos=>videos.map(v=>({url:v.currentSrc||v.src,duration:v.duration,width:v.videoWidth,height:v.videoHeight,ready:v.readyState,advertisement:!!v.closest('.ad,.ads,.video-ad,.jw-flag-ads')})));}catch{}
             for(const video of found)if(!video.advertisement&&video.ready>=1&&video.width>=160&&(video.duration>=120||video.duration===Infinity)) {started=true;if(/^https?:/.test(video.url))candidates.push({url:video.url,kind:/m3u8/i.test(video.url)?'hls':'mp4',referer:frame.url(),headers:{}});}
-            if(!started) {const play=frame.getByRole('button',{name:/^(Play|Odtwórz|Play video|Start video)$/i}).filter({visible:true}).or(frame.locator('.jw-icon-display,.jw-icon-playback,.vjs-big-play-button,.plyr__control[data-plyr="play"]').filter({visible:true})).first();try{if(await play.isVisible()){
+            let playing=false;try{playing=await frame.locator('video').evaluateAll(videos=>videos.some(video=>!video.paused&&!video.ended));}catch{}
+            if(!started&&!playing) {const play=frame.getByRole('button',{name:/^(Play|Odtwórz|Play video|Start video)$/i}).filter({visible:true}).or(frame.locator('.jw-icon-display,.jw-icon-playback.jw-icon-play,.vjs-big-play-button,.plyr__control[data-plyr="play"]').filter({visible:true})).first();try{if(await play.isVisible()){
                 playerClick=true;
                 await clearClickAdvertisements(frame,'.jw-icon-display,.vjs-big-play-button',new URL(frame.url()||'about:blank').origin);
                 try{await play.click({timeout:800});}catch(error){

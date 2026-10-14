@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS frontend
+FROM node:22-bookworm-slim AS frontend
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund
@@ -13,12 +13,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && mkdir -p /data && chown node:node /data
 COPY server ./server
-COPY ops/start.sh ops/public-start.sh ./ops/
-COPY releases/CinemaHub-AndroidTV-v1.3.2.apk ./client.apk
+COPY ops/start.sh ./ops/start.sh
 COPY --from=frontend /app/dist ./dist
-LABEL org.opencontainers.image.title="Cinema Hub" org.opencontainers.image.version="1.3.5" org.opencontainers.image.source="https://github.com/hattimon/CINEMA-HUB"
 USER node
 EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD node -e "fetch('http://127.0.0.1:8090/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
-CMD ["sh", "/app/ops/public-start.sh"]
+CMD ["sh", "/app/ops/start.sh"]

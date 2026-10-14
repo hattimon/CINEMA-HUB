@@ -1,12 +1,12 @@
 node_modules
-dist
 data
 .env
 .git
-docs
+dist
+design
 tests
 *.log
 .private
 .toolchain
 android
-backups
+releases

@@ -5,9 +5,12 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.DownloadManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -19,6 +22,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -62,15 +66,32 @@ import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.net.URLDecoder;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.json.JSONObject;
 
 @UnstableApi
 public class MainActivity extends Activity {
+    private static final String RELEASE_API="https://api.github.com/repos/hattimon/CINEMA-HUB/releases/latest";
+    private static final String UPDATE_ACTION="pl.cinemahub.tv.UPDATE_INSTALL_RESULT";
+    private static final Pattern APK_VERSION=Pattern.compile("^CinemaHub-AndroidTV-v([0-9]+\\.[0-9]+\\.[0-9]+)\\.apk$");
     private final Handler handler=new Handler(Looper.getMainLooper());
+    private final ExecutorService updateExecutor=Executors.newSingleThreadExecutor();
     private FrameLayout root,playerLayer;
     private LinearLayout nativeTitle,nativeActions,nativeMenu;
     private Button nativeAutoplay,nativeHost,nativeSources,nativePause,nativeFullscreen;
@@ -92,6 +113,9 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileChooser;
     private String[] pendingDownload;
     private boolean cursorMode,pausedByLifecycle,mainLoadFailed;
+    private boolean updateCheckStarted,updateDownloadStarted,waitingForInstallPermission;
+    private File pendingUpdateFile;
+    private AlertDialog updateProgressDialog;
     private View cursor;
     private float cursorX,cursorY;
     private final Runnable progressTick=new Runnable(){public void run(){if(player!=null){sendProgress(false);handler.postDelayed(this,5000);}}};
@@ -107,6 +131,124 @@ public class MainActivity extends Activity {
         root=new FrameLayout(this);root.setBackgroundColor(Color.rgb(11,13,18));setContentView(root);
         createWeb();immersive();
         if(!preferences.getBoolean("configured",false))handler.postDelayed(this::editServer,300);
+        handler.postDelayed(()->checkForUpdates(false),5000);
+    }
+
+    private static final class AppUpdate {
+        final String version,url,sha256;
+        AppUpdate(String version,String url,String sha256){this.version=version;this.url=url;this.sha256=sha256;}
+    }
+
+    private String installedVersion(){
+        try{String version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;return version==null||version.trim().isEmpty()?"0.0.0":version;}catch(Exception ignored){return "0.0.0";}
+    }
+
+    private AppUpdate findUpdate(String currentVersion)throws Exception{
+        HttpURLConnection connection=(HttpURLConnection)new URL(RELEASE_API).openConnection();
+        connection.setConnectTimeout(8000);connection.setReadTimeout(10000);connection.setRequestProperty("Accept","application/vnd.github+json");connection.setRequestProperty("User-Agent","CinemaHubTV");
+        try{
+            if(connection.getResponseCode()!=200)throw new java.io.IOException("GitHub update check failed");
+            JSONObject release=new JSONObject(new String(readLimited(connection.getInputStream(),1024*1024),java.nio.charset.StandardCharsets.UTF_8));
+            if(release.optBoolean("draft")||release.optBoolean("prerelease"))return null;
+            org.json.JSONArray assets=release.optJSONArray("assets");if(assets==null)return null;
+            for(int index=0;index<assets.length();index++){
+                JSONObject asset=assets.optJSONObject(index);if(asset==null)continue;
+                Matcher match=APK_VERSION.matcher(asset.optString("name"));if(!match.matches())continue;
+                String version=match.group(1);if(!AppVersion.isNewer(version,currentVersion))continue;
+                String url=asset.optString("browser_download_url");String digest=asset.optString("digest");
+                Uri download=Uri.parse(url);if(!"https".equals(download.getScheme())||!"github.com".equals(download.getHost())||!download.getPath().startsWith("/hattimon/CINEMA-HUB/releases/download/")||!digest.matches("(?i)^sha256:[0-9a-f]{64}$"))throw new java.io.IOException("Invalid Cinema Hub release asset");
+                return new AppUpdate(version,url,digest.substring(7).toLowerCase(Locale.ROOT));
+            }
+            return null;
+        }finally{connection.disconnect();}
+    }
+
+    private void checkForUpdates(boolean manual){
+        if(updateCheckStarted){if(manual)Toast.makeText(this,"Sprawdzam dostępność aktualizacji…",Toast.LENGTH_SHORT).show();return;}
+        updateCheckStarted=true;String current=installedVersion();
+        updateExecutor.execute(()->{
+            AppUpdate update=null;boolean failed=false;
+            try{update=findUpdate(current);}catch(Exception ignored){failed=true;}
+            final AppUpdate found=update;final boolean checkFailed=failed;
+            handler.post(()->{
+                updateCheckStarted=false;if(isFinishing()||isDestroyed())return;
+                if(found!=null){
+                    new AlertDialog.Builder(this).setTitle("Dostępna aktualizacja Cinema Hub").setMessage("Na urządzeniu: "+current+"\nNajnowsza wersja: "+found.version+"\n\nPobrać i zainstalować aktualizację na tym urządzeniu?").setPositiveButton("Pobierz i zainstaluj",(dialog,which)->downloadUpdate(found)).setNegativeButton("Później",null).show();
+                }else if(manual){
+                    String message=checkFailed?"Nie udało się sprawdzić aktualizacji. Sprawdź połączenie internetowe.":"Masz najnowszą wersję Cinema Hub ("+current+").";
+                    Toast.makeText(this,message,Toast.LENGTH_LONG).show();
+                }
+            });
+        });
+    }
+
+    private void downloadUpdate(AppUpdate update){
+        if(updateDownloadStarted)return;updateDownloadStarted=true;
+        updateProgressDialog=new AlertDialog.Builder(this).setTitle("Aktualizacja Cinema Hub").setMessage("Pobieram wersję "+update.version+" i sprawdzam jej sumę kontrolną…").setCancelable(false).create();updateProgressDialog.show();
+        updateExecutor.execute(()->{
+            File apk=null,partial=null;boolean failed=false;
+            try{
+                File directory=new File(getCacheDir(),"updates");if(!directory.isDirectory()&&!directory.mkdirs())throw new java.io.IOException("Cannot create update cache");
+                apk=new File(directory,"CinemaHub-AndroidTV-v"+update.version+".apk");partial=new File(apk.getPath()+".part");
+                HttpURLConnection connection=(HttpURLConnection)new URL(update.url).openConnection();connection.setConnectTimeout(10000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(true);connection.setRequestProperty("User-Agent","CinemaHubTV");
+                try{
+                    if(connection.getResponseCode()!=200)throw new java.io.IOException("APK download failed");
+                    long expectedSize=connection.getContentLength();if(expectedSize>60L*1024*1024)throw new java.io.IOException("APK is too large");
+                    MessageDigest digest=MessageDigest.getInstance("SHA-256");long total=0;byte[] buffer=new byte[32768];
+                    try(InputStream input=connection.getInputStream();FileOutputStream output=new FileOutputStream(partial)){
+                        int count;while((count=input.read(buffer))!=-1){total+=count;if(total>60L*1024*1024)throw new java.io.IOException("APK is too large");digest.update(buffer,0,count);output.write(buffer,0,count);}
+                    }
+                    if(total==0||expectedSize>0&&total!=expectedSize||!toHex(digest.digest()).equals(update.sha256))throw new java.io.IOException("APK checksum or size did not match");
+                    if(apk.exists()&&!apk.delete())throw new java.io.IOException("Cannot replace cached APK");
+                    if(!partial.renameTo(apk))throw new java.io.IOException("Cannot finalize downloaded APK");
+                    PackageInfo archive=getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(),0);
+                    if(archive==null||!getPackageName().equals(archive.packageName)||!update.version.equals(archive.versionName)||!AppVersion.isNewer(archive.versionName,currentInstalledVersion()))throw new java.io.IOException("Downloaded APK is not a newer Cinema Hub version");
+                }finally{connection.disconnect();}
+            }catch(Exception ignored){failed=true;if(partial!=null)partial.delete();if(apk!=null)apk.delete();}
+            final File downloaded=apk;final boolean downloadFailed=failed;
+            handler.post(()->{
+                updateDownloadStarted=false;if(updateProgressDialog!=null){updateProgressDialog.dismiss();updateProgressDialog=null;}if(isFinishing()||isDestroyed())return;
+                if(downloadFailed||downloaded==null){Toast.makeText(this,"Nie udało się pobrać i zweryfikować aktualizacji.",Toast.LENGTH_LONG).show();return;}
+                pendingUpdateFile=downloaded;requestUpdateInstall();
+            });
+        });
+    }
+
+    private String currentInstalledVersion(){return installedVersion();}
+
+    private static byte[] readLimited(InputStream input,int maximum)throws java.io.IOException{
+        try(InputStream source=input;ByteArrayOutputStream output=new ByteArrayOutputStream()){
+            byte[] buffer=new byte[8192];int count;while((count=source.read(buffer))!=-1){if(output.size()+count>maximum)throw new java.io.IOException("Response is too large");output.write(buffer,0,count);}return output.toByteArray();
+        }
+    }
+
+    private static String toHex(byte[] bytes){StringBuilder value=new StringBuilder(bytes.length*2);for(byte item:bytes)value.append(String.format(Locale.ROOT,"%02x",item&0xff));return value.toString();}
+
+    private void requestUpdateInstall(){
+        if(pendingUpdateFile==null||!pendingUpdateFile.isFile())return;
+        if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){
+            new AlertDialog.Builder(this).setTitle("Zezwól na aktualizację").setMessage("Android wymaga jednorazowego zezwolenia na instalowanie aktualizacji pobranych przez Cinema Hub. W następnym ekranie włącz „Zezwalaj z tego źródła”, a instalator uruchomi się po powrocie.").setPositiveButton("Otwórz ustawienia",(dialog,which)->{
+                waitingForInstallPermission=true;try{startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));}catch(Exception error){waitingForInstallPermission=false;Toast.makeText(this,"Nie można otworzyć ustawień instalacji aplikacji.",Toast.LENGTH_LONG).show();}
+            }).setNegativeButton("Później",null).show();return;
+        }
+        installUpdate(pendingUpdateFile);
+    }
+
+    private void installUpdate(File apk){
+        try{
+            PackageInstaller installer=getPackageManager().getPackageInstaller();PackageInstaller.SessionParams parameters=new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            if(Build.VERSION.SDK_INT>=29)parameters.setAppPackageName(getPackageName());
+            int sessionId=installer.createSession(parameters);
+            try(PackageInstaller.Session session=installer.openSession(sessionId)){
+                try(FileInputStream input=new FileInputStream(apk);OutputStream output=session.openWrite("base.apk",0,apk.length())){
+                    byte[] buffer=new byte[32768];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);session.fsync(output);
+                }
+                Intent callback=new Intent(this,UpdateInstallReceiver.class).setAction(UPDATE_ACTION).setData(Uri.parse("cinemahub-update:"+sessionId));
+                int flags=PendingIntent.FLAG_UPDATE_CURRENT;if(Build.VERSION.SDK_INT>=31)flags|=PendingIntent.FLAG_MUTABLE;
+                PendingIntent status=PendingIntent.getBroadcast(this,sessionId,callback,flags);session.commit(status.getIntentSender());
+            }
+            Toast.makeText(this,"Aktualizacja przekazana do instalatora Androida.",Toast.LENGTH_LONG).show();
+        }catch(Exception error){Toast.makeText(this,"Android nie mógł rozpocząć instalacji. Zachowano pobrany plik aktualizacji.",Toast.LENGTH_LONG).show();}
     }
 
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
@@ -130,7 +272,7 @@ public class MainActivity extends Activity {
         WebSettings settings=view.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(false);settings.setAllowContentAccess(true);settings.setAllowFileAccessFromFileURLs(false);settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);settings.setSupportMultipleWindows(true);settings.setJavaScriptCanOpenWindowsAutomatically(false);
-        settings.setUserAgentString(settings.getUserAgentString()+" CinemaHubTV/1.3.2");if(Build.VERSION.SDK_INT>=26)settings.setSafeBrowsingEnabled(true);
+        settings.setUserAgentString(settings.getUserAgentString()+" CinemaHubTV/1.3.3");if(Build.VERSION.SDK_INT>=26)settings.setSafeBrowsingEnabled(true);
         CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(view,false);
         view.setFocusable(true);view.setFocusableInTouchMode(true);view.setBackgroundColor(Color.rgb(11,13,18));
         view.setWebViewClient(new WebViewClient(){
@@ -287,7 +429,7 @@ public class MainActivity extends Activity {
 
     private void editServer(){EditText input=new EditText(this);input.setSingleLine(true);input.setText(server);input.setHint("192.168.11.20:9999 lub https://twoje-kino.pl");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Adres serwera Cinema Hub").setMessage("Wpisz IP z portem lub pełny adres panelu kontenera.").setView(input).setPositiveButton("Połącz",null).setNeutralButton("Pi :9999",(d,w)->{server=ServerAddress.DEFAULT;saveServer();createWeb();}).setNegativeButton("Anuluj",null).create();dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{String address=ServerAddress.normalize(input.getText().toString());server=address;saveServer();dialog.dismiss();createWeb();}catch(IllegalArgumentException error){input.setError(error.getMessage());}}));dialog.show();}
     private void saveServer(){preferences.edit().putString("server",server).putBoolean("configured",true).apply();}
-    private void menu(){String[] entries={"Wróć do panelu","Biblioteka","Odśwież","Adres IP / URL serwera",cursorMode?"Pilot: przełącz na wybór przycisków":"Pilot: włącz kursor","Pobrania Android","Zamknij aplikację"};new AlertDialog.Builder(this).setTitle("Cinema Hub · "+server).setItems(entries,(d,index)->{if(index==1){closePlayer(true,false);if(web!=null)web.loadUrl(server);}if(index==2){if(web!=null)web.reload();else createWeb();}if(index==3)editServer();if(index==4){cursorMode=!cursorMode;preferences.edit().putBoolean("cursor",cursorMode).apply();cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);web.requestFocus();}if(index==5)try{startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));}catch(Exception error){Toast.makeText(this,"Otwórz folder Download w menedżerze plików.",Toast.LENGTH_LONG).show();}if(index==6)finish();}).show();}
+    private void menu(){String[] entries={"Wróć do panelu","Biblioteka","Odśwież","Adres IP / URL serwera",cursorMode?"Pilot: przełącz na wybór przycisków":"Pilot: włącz kursor","Pobrania Android","Sprawdź aktualizacje","Zamknij aplikację"};new AlertDialog.Builder(this).setTitle("Cinema Hub · "+server).setItems(entries,(d,index)->{if(index==1){closePlayer(true,false);if(web!=null)web.loadUrl(server);}if(index==2){if(web!=null)web.reload();else createWeb();}if(index==3)editServer();if(index==4){cursorMode=!cursorMode;preferences.edit().putBoolean("cursor",cursorMode).apply();cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);web.requestFocus();}if(index==5)try{startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));}catch(Exception error){Toast.makeText(this,"Otwórz folder Download w menedżerze plików.",Toast.LENGTH_LONG).show();}if(index==6)checkForUpdates(true);if(index==7)finish();}).show();}
     private void showError(String message){if(errorView!=null)root.removeView(errorView);LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setGravity(Gravity.CENTER);panel.setPadding(dp(45),dp(30),dp(45),dp(30));panel.setBackgroundColor(Color.rgb(11,13,18));TextView title=new TextView(this);title.setText("Cinema Hub");title.setTextColor(Color.rgb(162,138,255));title.setTextSize(28);panel.addView(title);TextView description=new TextView(this);description.setText(message+"\n\n"+server);description.setTextColor(Color.WHITE);description.setTextSize(17);description.setPadding(0,dp(20),0,dp(20));panel.addView(description);Button retry=new Button(this);retry.setText("Ponów");retry.setOnClickListener(v->createWeb());panel.addView(retry);Button settings=new Button(this);settings.setText("Zmień adres serwera");settings.setOnClickListener(v->editServer());panel.addView(settings);root.addView(panel,new FrameLayout.LayoutParams(-1,-1));errorView=panel;retry.requestFocus();}
 
     private void download(String address,String agent,String disposition,String mime){if(!ServerAddress.isDownload(server,address)){Toast.makeText(this,"Można zapisać wyłącznie film ręcznie wybrany w Cinema Hub.",Toast.LENGTH_LONG).show();return;}if(Build.VERSION.SDK_INT<29&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){pendingDownload=new String[]{address,agent,disposition,mime};requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},11);return;}try{String name=URLUtil.guessFileName(address,disposition,mime);if(disposition!=null){int at=disposition.toLowerCase(Locale.ROOT).indexOf("filename*=utf-8''");if(at>=0)name=URLDecoder.decode(disposition.substring(at+17).split(";")[0].replace("\"",""),"UTF-8");}name=name.replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]","_");int dot=name.lastIndexOf('.');String ext=dot>0?name.substring(dot):".mp4",label=dot>0?name.substring(0,dot):name;while(label.getBytes("UTF-8").length>180)label=label.substring(0,label.length()-1);String stamp=new SimpleDateFormat("yyyyMMdd-HHmmss",Locale.ROOT).format(new java.util.Date());name=label+" - "+stamp+ext;DownloadManager.Request request=new DownloadManager.Request(Uri.parse(address)).setTitle(name).setDescription("Ręczny zapis filmu z Cinema Hub").setMimeType(mime).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED).setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,name);String cookies=CookieManager.getInstance().getCookie(server);if(cookies!=null)request.addRequestHeader("Cookie",cookies);request.addRequestHeader("User-Agent",agent);((DownloadManager)getSystemService(DOWNLOAD_SERVICE)).enqueue(request);Toast.makeText(this,"Dodano do pobrań Android: "+name,Toast.LENGTH_LONG).show();}catch(Exception error){Toast.makeText(this,"Nie można rozpocząć zapisu na urządzeniu. Sprawdź wolne miejsce i systemową aplikację Pobrania.",Toast.LENGTH_LONG).show();}}
@@ -323,6 +465,6 @@ public class MainActivity extends Activity {
     }
     @Override public void onBackPressed(){if(player!=null){if(webPanel&&web!=null){web.evaluateJavascript("!!(window.CinemaHubTV&&window.CinemaHubTV.back())",result->{if(!"true".equals(result))setWebPanel(false);});}else if(playerFullscreen)setPlayerFullscreen(false);else closePlayer(true,false);return;}if(customView!=null){hideCustom();return;}if(loginDialog!=null){if(loginWeb!=null&&loginWeb.canGoBack())loginWeb.goBack();else loginDialog.dismiss();return;}if(web==null){finish();return;}web.evaluateJavascript("!!(window.CinemaHubTV&&window.CinemaHubTV.back())",result->{if(!"true".equals(result)){if(web.canGoBack())web.goBack();else new AlertDialog.Builder(this).setMessage("Zamknąć Cinema Hub?").setPositiveButton("Zamknij",(d,w)->finish()).setNegativeButton("Wróć",null).show();}});}
     @Override protected void onPause(){super.onPause();CookieManager.getInstance().flush();if(player!=null){pausedByLifecycle=player.isPlaying();player.pause();sendProgress(false);}if(web!=null)web.onPause();}
-    @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();if(player!=null&&pausedByLifecycle){pausedByLifecycle=false;player.play();}immersive();}
-    @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);closePlayer(false,false);hideCustom();if(fileChooser!=null)fileChooser.onReceiveValue(null);if(loginDialog!=null)loginDialog.dismiss();if(web!=null)web.destroy();super.onDestroy();}
+    @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();if(player!=null&&pausedByLifecycle){pausedByLifecycle=false;player.play();}if(waitingForInstallPermission){waitingForInstallPermission=false;if(Build.VERSION.SDK_INT>=26&&getPackageManager().canRequestPackageInstalls())requestUpdateInstall();else Toast.makeText(this,"Instalacja aktualizacji wymaga zezwolenia „Zezwalaj z tego źródła”.",Toast.LENGTH_LONG).show();}immersive();}
+    @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);updateExecutor.shutdownNow();closePlayer(false,false);hideCustom();if(fileChooser!=null)fileChooser.onReceiveValue(null);if(loginDialog!=null)loginDialog.dismiss();if(updateProgressDialog!=null)updateProgressDialog.dismiss();if(web!=null)web.destroy();super.onDestroy();}
 }

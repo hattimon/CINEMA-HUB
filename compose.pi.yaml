@@ -1,15 +1,16 @@
 name: cinema-hub
 services:
   cinema:
-    image: ${APP_IMAGE:-ghcr.io/hattimon/cinema-hub:1.3.5}
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.pi
+    image: cinema-hub:rpi
     restart: unless-stopped
     ports:
-      - "${LAN_BIND:-0.0.0.0}:${APP_PORT:-9999}:8090"
+      - "${LAN_BIND:-192.168.11.20}:${APP_PORT:-9999}:8090"
     volumes:
-      - cinema-state:/data
+      - "${CINEMA_DATA_DIR:-/mnt/nvme/apps/cinema-hub/data}:/data"
     environment:
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
     tmpfs:
@@ -27,5 +28,3 @@ services:
         max-size: "10m"
         max-file: "3"
     stop_grace_period: 25s
-volumes:
-  cinema-state:

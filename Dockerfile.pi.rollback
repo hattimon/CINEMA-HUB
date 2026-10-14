@@ -1,0 +1,14 @@
+ARG DEPENDENCY_IMAGE=cinema-hub:rpi
+FROM ${DEPENDENCY_IMAGE}
+USER root
+WORKDIR /app
+COPY .runtime-backup/package-lock.json /tmp/cinema-old-lock.json
+RUN node -e "const fs=require('node:fs');const load=path=>{const lock=JSON.parse(fs.readFileSync(path));delete lock.version;delete lock.packages[''].version;return JSON.stringify(lock)};if(load('/app/package-lock.json')!==load('/tmp/cinema-old-lock.json'))throw Error('Rollback dependencies differ');fs.unlinkSync('/tmp/cinema-old-lock.json')"
+RUN rm -rf /app/server /app/dist
+COPY .runtime-backup/package.json .runtime-backup/package-lock.json ./
+COPY .runtime-backup/server ./server
+COPY .runtime-backup/dist ./dist
+COPY .runtime-backup/start.sh ./ops/start.sh
+USER node
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+CMD ["sh", "/app/ops/start.sh"]

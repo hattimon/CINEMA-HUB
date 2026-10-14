@@ -1,5 +1,15 @@
 # Historia wydań
 
+## Serwer 1.3.6
+
+- Resolver VOE nie przełącza już aktywnego odtwarzacza w pauzę podczas buforowania; autoplay może wykryć i zweryfikować strumień.
+- Sprawdzono pełny zestaw 36 testów w Chrome.
+
+## Android TV 1.3.3
+
+- Automatyczne sprawdzanie aktualizacji przy uruchomieniu oraz ręczna opcja w menu aplikacji.
+- Pobieranie APK z publicznego wydania, weryfikacja SHA-256 i przekazanie instalacji do systemowego instalatora Androida.
+- Android TV wymaga zatwierdzenia instalacji; przy pierwszym użyciu potrzebna jest zgoda „Zezwalaj z tego źródła”.
 ## Serwer 1.3.5
 
 - Osobna konfiguracja źródeł; zachowanie zapisanych danych przy wyłączaniu i edycji.

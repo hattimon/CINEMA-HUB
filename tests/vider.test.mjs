@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseViderCatalog,parseViderDetail,viderURL,isViderVideo } from '../server/vider-parser.mjs';
 import { sourceErrorMessage } from '../server/source-errors.mjs';
+import { browserHeaded } from '../server/browser-mode.mjs';
 
 const origin='https://vider.info/';
 const html=`<title>Folder filmów</title>
@@ -86,4 +87,14 @@ test('Source diagnostics distinguish DNS, unreachable LAN and manual CAPTCHA',()
 test('Vider collection cards do not turn comment links into movie titles',()=>{
   const page='<div id="LoadGeneralContent"><ul class="browse_collections"><li><a href="/vid/+film"><span class="txt_md">Tytuł filmu</span></a></li></ul><div class="comments"><a href="/vid/+film">Polecam</a><a href="/vid/+other">Komentarz o filmie</a></div></div>';
   assert.deepEqual(parseViderCatalog(page,origin).items.map(item=>item.title),['Tytuł filmu']);
+});
+
+test('Background portal browsers cannot cover another source manual login',()=>{
+  const display={DISPLAY:':99'};
+  assert.equal(browserHeaded('vider',false,display),false);
+  assert.equal(browserHeaded('filman',false,display),false);
+  assert.equal(browserHeaded('vider',true,display),true);
+  assert.equal(browserHeaded('vider',false,{...display,BROWSER_SERIAL:'true'}),true);
+  assert.equal(browserHeaded('vider',false,{BROWSER_SERIAL:'true'}),false);
+  assert.equal(browserHeaded('http',false,{...display,BROWSER_SERIAL:'true'}),false);
 });
