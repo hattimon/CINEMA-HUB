@@ -2,7 +2,7 @@
 
 Klient Android panelu z kontenera, pakiet `pl.cinemahub.tv`. Instaluje się obok Filman TV. Konta, katalog, źródła i postęp oglądania obsługuje serwer Cinema Hub.
 
-Po uruchomieniu wpisz **IP z portem lub pełny adres panelu**, np. `192.168.11.20:9999`, `http://192.168.11.20:9999/` albo `https://kino.twoja-domena.pl/`. Adres zapisuje się na projektorze. **MENU → Adres IP / URL serwera** pozwala go zmienić. Serwer musi być dostępny z sieci projektora. Logowanie jest takie samo jak w panelu; na pierwszej instalacji `admin / admin`.
+Po uruchomieniu wpisz **IP z portem lub pełny adres panelu**, np. `IP_SERWERA:9999`, `http://IP_SERWERA:9999/` albo `https://kino.twoja-domena.pl/`. Adres zapisuje się na projektorze. **MENU → Adres IP / URL serwera** pozwala go zmienić. Serwer musi być dostępny z sieci projektora. Logowanie jest takie samo jak w panelu; na pierwszej instalacji `admin / admin`.
 
 Strzałki pilota wybierają przyciski oznaczone ramką, OK zatwierdza. **OK na ramce odcinków** wchodzi do listy; góra/dół wybiera wtedy odcinki. **Lewo/prawo z wiersza** wraca do całej ramki. **Dół z ramki** zaznacza przycisk automatycznego odtwarzania lub dostępne źródła; góra wraca do ramki, a kolejna góra do przycisków nad nią. **Do źródeł** przenosi zaznaczenie do źródeł bez zwijania odcinków. MENU poza filmem otwiera opcje klienta. Opcja kursora pozwala obsługiwać elementy wymagające kliknięcia; Page Up / Page Down przewijają stronę.
 
@@ -12,7 +12,7 @@ Zweryfikowany MP4/HLS jest przekazywany do Media3/ExoPlayer. Postęp wraca do pr
 
 Zapis filmu jest wyłącznie ręczny, po użyciu przycisku w panelu. Na Androidzie trafia do systemowych Pobierań i folderu `Download` projektora; nazwa zachowuje tytuł, sezon/odcinek oraz jakość i otrzymuje datę zapisu. Chmurowe cele zapisuje się w ustawieniach panelu. Serwer nie zapisuje filmów na swoim dysku.
 
-APK: `../releases/CinemaHub-Magcubic-L018-v1.3.3.apk` (versionCode 7). Można ją pobrać z `http://192.168.11.20:9999/download/cinema-hub.apk`. Aplikacja sprawdza wydania GitHub po uruchomieniu i pyta o aktualizację; można też użyć **MENU → Sprawdź aktualizacje**. Po pobraniu Android otwiera własny instalator i wymaga zatwierdzenia. Przy pierwszej aktualizacji włącz jednorazowo **Zezwalaj z tego źródła** dla Cinema Hub. Instaluj jako aktualizację istniejącej aplikacji; podpis jest zgodny z poprzednim APK. APK można także przenieść przez USB i otworzyć w menedżerze plików projektora.
+APK: `../releases/CinemaHub-Magcubic-L018-v1.3.3.apk` (versionCode 7). Można ją pobrać z `http://IP_SERWERA:9999/download/cinema-hub.apk`. Aplikacja sprawdza wydania GitHub po uruchomieniu i pyta o aktualizację; można też użyć **MENU → Sprawdź aktualizacje**. Po pobraniu Android otwiera własny instalator i wymaga zatwierdzenia. Przy pierwszej aktualizacji włącz jednorazowo **Zezwalaj z tego źródła** dla Cinema Hub. Instaluj jako aktualizację istniejącej aplikacji; podpis jest zgodny z poprzednim APK. APK można także przenieść przez USB i otworzyć w menedżerze plików projektora.
 
 W 1.3.2 menu pauzy ma własny, widoczny pasek czasu nad przyciskami. Kliknięcie lub dotknięcie paska przewija bez wznawiania filmu. Pilot: z przycisku **Wznów** naciśnij **górę**, aby zaznaczyć pasek; **lewo/prawo** zmienia pozycję o 10 sekund, **OK** zatwierdza. Podczas oglądania lewo/prawo również przewija o 10 sekund. W liście odcinków **OK na ramce** przechodzi do wierszy, góra/dół wybiera odcinek; prawo/lewo wraca do nadrzędnych przycisków. Wybór odcinka zachowuje rozwiniętą listę na Android TV.
 
