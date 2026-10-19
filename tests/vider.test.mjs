@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseViderCatalog,parseViderDetail,viderURL,isViderVideo } from '../server/vider-parser.mjs';
 import { sourceErrorMessage } from '../server/source-errors.mjs';
 import { browserHeaded } from '../server/browser-mode.mjs';
+import { sameTitle,combineCatalog } from '../server/catalog-match.mjs';
 
 const origin='https://vider.info/';
 const html=`<title>Folder filmów</title>
@@ -97,4 +98,19 @@ test('Background portal browsers cannot cover another source manual login',()=>{
   assert.equal(browserHeaded('vider',false,{...display,BROWSER_SERIAL:'true'}),true);
   assert.equal(browserHeaded('vider',false,{BROWSER_SERIAL:'true'}),false);
   assert.equal(browserHeaded('http',false,{...display,BROWSER_SERIAL:'true'}),false);
+});
+
+test('Vider groups numbered episodes, separates films and leaves miscellaneous uploads last',()=>{
+  const page=['Stargate SG-1 S02E18 Lektor','Stargate SG-1 2x17','Film fabularny 2024','Kot na balkonie'].map((title,index)=>`<article><a href="/vid/+item${index}" title="${title}">${title}</a></article>`).join('');
+  const all=parseViderCatalog(page,origin);assert.deepEqual(all.items.map(item=>item.kind),['series','movie','video']);
+  const series=parseViderCatalog(page,origin,{kind:'series'}).items;assert.equal(series.length,1);assert.equal(series[0].title,'Stargate SG-1');assert.deepEqual(series[0].episodes.map(e=>[e.season,e.number]),[[2,17],[2,18]]);
+  assert.deepEqual(parseViderCatalog(page,origin,{kind:'movies'}).items.map(item=>item.title),['Film fabularny 2024']);
+});
+
+test('Cross-source titles use exact aliases and compatible years, not loose substrings',()=>{
+  assert.equal(sameTitle({title:'Gwiezdne wrota / Stargate SG-1',kind:'series',year:1997},{title:'Stargate SG-1',kind:'series'}),true);
+  assert.equal(sameTitle({title:'Dune',kind:'movie',year:1984},{title:'Dune 2021 1080p Lektor PL',kind:'movie',year:2021}),false);
+  assert.equal(sameTitle({title:'Alien',kind:'movie'},{title:'Alien Covenant',kind:'movie'}),false);
+  const groups=[{sourceId:'filman',items:[{id:'one',title:'Film 2024',kind:'movie',year:2024}]},{sourceId:'vider',sourceName:'Vider',items:[{id:'two',sourceId:'vider',title:'Film 2024 Lektor',kind:'movie',year:2024}]}];
+  const merged=combineCatalog(groups,new Map([['filman','filman'],['vider','vider']]));assert.equal(merged[1].items.length,0);assert.equal(merged[0].items[0].alternateSources[0].sourceId,'vider');
 });

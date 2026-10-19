@@ -9,4 +9,5 @@ tests
 .private
 .toolchain
 android
-releases
+releases/**
+!releases/CinemaHub-AndroidTV-v1.3.6.apk

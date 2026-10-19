@@ -12,22 +12,33 @@ export function installTV() {
   const scope=()=>document.activeElement?.closest('dialog[open]')||[...document.querySelectorAll('dialog[open]')].at(-1)||document.body;
   const controls=()=>[...scope().querySelectorAll<HTMLElement>('button,a[href],input:not([type=hidden]),select,textarea,summary,[tabindex="0"]')].filter(el=>visible(el)&&(!el.matches('[data-tv-item]')||document.activeElement?.matches('[data-tv-item]')&&!!el.closest('[data-tv-group]')?.contains(document.activeElement))&&(!el.matches('[data-tv-sources]')||el===document.activeElement||!el.contains(document.activeElement)));
   const focus=focusControl;
-  const back=()=>{const target=document.activeElement as HTMLElement,group=target?.closest<HTMLElement>('[data-tv-group]');if(group&&target!==group){focus(group);return true;}const current=scope();if(current.matches('.player-overlay')&&document.fullscreenElement){void document.exitFullscreen();return true;}const close=current.querySelector<HTMLButtonElement>('[aria-label="Zamknij odtwarzacz"],[aria-label="Zamknij"]');if(close){close.click();return true;}return false;};
+  const focusDetails=(element:HTMLElement)=>{focus(element);element.closest('dialog')?.scrollTo({top:0,behavior:'instant'});};
+  const back=()=>{const target=document.activeElement as HTMLElement;if(target?.matches('input[data-tv-range][data-tv-editing="true"]')){target.click();return true;}const group=target?.closest<HTMLElement>('[data-tv-group]');if(group&&target!==group){focus(group);return true;}const current=scope();if(current.matches('.player-overlay')&&document.fullscreenElement){void document.exitFullscreen();return true;}const close=current.querySelector<HTMLButtonElement>('[aria-label="Zamknij odtwarzacz"],[aria-label="Zamknij"]');if(close){close.click();return true;}return false;};
   const handle=(key:string,target=document.activeElement as HTMLElement)=>{
     if(['Escape','BrowserBack'].includes(key))return back();
-    if(!target||target.tagName==='SELECT'||target.tagName==='TEXTAREA'||target.tagName==='IFRAME'||target.tagName==='INPUT'&&target.getAttribute('type')!=='checkbox')return false;
+    if(key==='ArrowUp'&&target?.closest('.player-overlay[data-player-waiting="true"]')&&!target.closest('.player-options')){const details=target.closest('.player-overlay')?.querySelector<HTMLButtonElement>('[data-player-details]');if(details){details.click();return true;}}
+    const range=target?.matches('input[type="range"][data-tv-range]');
+    if(range){
+      if(['Enter',' '].includes(key)){target.click();return true;}
+      // The WebView and keyboard share this path; native range keys run only after OK.
+      if(target.dataset.tvEditing==='true')return false;
+      if(['Home','End','PageUp','PageDown'].includes(key))return true;
+    }
+    if(!target||target.tagName==='SELECT'||target.tagName==='TEXTAREA'||target.tagName==='IFRAME'||target.tagName==='INPUT'&&target.getAttribute('type')!=='checkbox'&&!range)return false;
     const group=target.closest<HTMLElement>('[data-tv-group]');
+    if(key==='ArrowUp'&&target.matches('[data-tv-exit-left],[data-tv-exit-right]')){const favorite=scope().querySelector<HTMLElement>('[data-tv-detail-primary]');if(favorite&&visible(favorite)){focusDetails(favorite);return true;}}
     if(group){
       const rows=[...group.querySelectorAll<HTMLButtonElement>('[data-tv-item]')].filter(row=>!row.disabled);
       if(['Enter',' '].includes(key)){if(target===group)enterTVGroup(group);else if(target.matches('[data-tv-item]'))target.click();else return false;return true;}
       if(target!==group&&['ArrowLeft','ArrowRight'].includes(key)){focus(group);return true;}
-      if(target!==group&&['ArrowUp','ArrowDown'].includes(key)){const at=rows.indexOf(target as HTMLButtonElement),next=Math.max(0,Math.min(rows.length-1,at+(key==='ArrowDown'?1:-1)));if(rows[next])focus(rows[next]);return true;}
+      if(target!==group&&['ArrowUp','ArrowDown'].includes(key)){const at=rows.indexOf(target as HTMLButtonElement);if(key==='ArrowUp'&&at===0){const shortcut=scope().querySelector<HTMLElement>('[data-tv-exit-right]');focus(shortcut&&visible(shortcut)?shortcut:group);return true;}const next=Math.max(0,Math.min(rows.length-1,at+(key==='ArrowDown'?1:-1)));if(rows[next])focus(rows[next]);return true;}
       if(target===group&&key==='ArrowDown'){const sources=scope().querySelector<HTMLElement>('[data-tv-sources]');if(sources){focusTVSources(sources);return true;}}
+      if(target===group&&key==='ArrowUp'){const shortcut=scope().querySelector<HTMLElement>('[data-tv-exit-right]');if(shortcut&&visible(shortcut)){focus(shortcut);return true;}}
     }
     const sources=target.closest<HTMLElement>('[data-tv-sources]');
     if(sources){
       if(target===sources&&['Enter',' ','ArrowDown'].includes(key)){focusTVSources(sources);return true;}
-      if(key==='ArrowUp'&&(target===sources||target===sourceControls(sources)[0])){const episodes=scope().querySelector<HTMLElement>('[data-tv-group]');if(episodes&&visible(episodes)){focus(episodes);return true;}}
+      if(key==='ArrowUp'&&(target===sources||target===sourceControls(sources)[0]||target.matches('[data-tv-source-primary]'))){const episodes=scope().querySelector<HTMLElement>('[data-tv-group]'),favorite=scope().querySelector<HTMLElement>('[data-tv-detail-primary]');if(episodes&&visible(episodes)){focus(episodes);return true;}if(favorite&&visible(favorite)){focusDetails(favorite);return true;}}
     }
     if(!key.startsWith('Arrow'))return false;
     const video=document.querySelector<HTMLVideoElement>('.player-overlay video');
@@ -41,5 +52,5 @@ export function installTV() {
     if(candidates.length)focus(candidates[0].el);return true;
   };
   window.CinemaHubTV={back,key:handle};
-  document.addEventListener('keydown',event=>{if(event.defaultPrevented||event.altKey||event.ctrlKey||event.metaKey)return;const target=event.target as HTMLElement;if(event.repeat&&['Enter',' '].includes(event.key)&&target.closest('[data-tv-group]')){event.preventDefault();return;}if(handle(event.key,target))event.preventDefault();});
+  document.addEventListener('keydown',event=>{if(event.defaultPrevented||event.altKey||event.ctrlKey||event.metaKey)return;const target=event.target as HTMLElement;if(event.repeat&&['Enter',' '].includes(event.key)&&target.closest('[data-tv-group],[data-tv-range]')){event.preventDefault();return;}if(handle(event.key,target))event.preventDefault();});
 }

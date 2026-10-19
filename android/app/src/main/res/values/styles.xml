@@ -4,4 +4,8 @@
         <item name="android:windowBackground">#0b0d12</item><item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+    <style name="PlaybackPanelWindowAnimations">
+        <item name="android:windowEnterAnimation">@anim/playback_panel_enter</item>
+        <item name="android:windowExitAnimation">@anim/playback_panel_exit</item>
+    </style>
 </resources>

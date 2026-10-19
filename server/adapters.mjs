@@ -55,7 +55,8 @@ export async function catalog(source,{kind='all',filters={},page=1,query='',fold
   if(source.type==='filman') {
     const cacheKey=source.id+':'+(kind==='series'?'series':'movies');let entry=schemas.get(cacheKey),first;
     const baseRoute=new URL(kind==='series'?'seriale/':kind==='children'?'dla-dzieci-pl/':'filmy/',source.url).href;
-    if(!entry||entry.expires<Date.now()){first=await sourceBrowser.html(source,baseRoute);const parsed=parseCatalog(first,baseRoute);if(parsed.challenge)return parsed;entry={schema:parsed.filters,expires:Date.now()+3600000};schemas.set(cacheKey,entry);}const schema=entry.schema;
+    const initialRoute=kind==='all'&&!query&&!Object.values(filters).some(v=>v?.length)&&page===1?source.url:baseRoute;
+    if(!entry||entry.expires<Date.now()){first=await sourceBrowser.html(source,initialRoute);const parsed=parseCatalog(first,initialRoute);if(parsed.challenge)return parsed;const filters=parsed.filters.length||initialRoute===baseRoute?parsed.filters:parseCatalog(await sourceBrowser.html(source,baseRoute),baseRoute).filters;entry={schema:filters,expires:Date.now()+3600000};schemas.set(cacheKey,entry);}const schema=entry.schema;
     const hasFilters=Object.values(filters).some(v=>v?.length);let url=kind==='all'&&!query&&!hasFilters&&page===1?source.url:buildFilterURL(source.url,kind,filters,page,schema);
     let html;
     if(query) {
@@ -73,7 +74,7 @@ export async function catalog(source,{kind='all',filters={},page=1,query='',fold
       const order=filters.sort?.[0];if(['rate','filmweb'].includes(order))items.sort((a,b)=>(order==='filmweb'?b.imdb:b.rating||0)-(order==='filmweb'?a.imdb:a.rating||0));if(order==='premiere')items.sort((a,b)=>(b.year||0)-(a.year||0));
       const total=items.length;return {...result,items:items.slice((page-1)*24,page*24),pages:total>page*24?[{page:page+1,label:'Następna'}]:[],filters:schema};
     }
-    html=url===baseRoute&&first?first:await sourceBrowser.html(source,url);return {...parseCatalog(html,url),filters:schema};
+    html=url===initialRoute&&first?first:await sourceBrowser.html(source,url);return {...parseCatalog(html,url),filters:schema};
   }
   if(source.type==='plex') {
     const headers=credentialsHeaders(source),allowedOrigins=[networkURL(source.url).origin];
@@ -119,6 +120,7 @@ export async function catalog(source,{kind='all',filters={},page=1,query='',fold
 }
 export async function detail(source,item) {
   if(source.type==='vider') {
+    if(item.kind==='series'&&item.episodes?.length)return item;
     const url=viderURL(item.url,source.url);
     if(!url||!/^\/vid\/[+a-z0-9_-]+\/?$/i.test(url.pathname))throw new Error('Nieprawidłowy adres wideo Vider.');
     const parsed=parseViderDetail(await sourceBrowser.html(source,url.href),url.href);
@@ -134,10 +136,11 @@ export async function detail(source,item) {
   }
   return {...item,episodes:[],sources:[{id:'file',host:source.name,version:'Oryginał',quality:item.quality||'Oryginał',url:item.url,bytes:item.bytes}]};
 }
-export async function resolveLink(source,pageURL,link,onProgress) {
-  if(source.type==='vider')return sourceBrowser.resolveVider(source,pageURL,link,onProgress);
-  if(source.type==='filman')return sourceBrowser.resolve(source,pageURL,link,onProgress);
+export async function resolveLink(source,pageURL,link,onProgress,{signal,fresh=false}={}) {
+  signal?.throwIfAborted();
+  if(source.type==='vider')return sourceBrowser.resolveVider(source,pageURL,link,onProgress,{signal});
+  if(source.type==='filman')return sourceBrowser.resolve(source,pageURL,link,onProgress,{signal,fresh});
   const remote=['ftp','webdav','s3'].includes(source.type);
   const candidate=remote?{kind:'remote',url:link.url,sourceId:source.id,userId:source.user_id,bytes:link.bytes,host:link.host,version:link.version,quality:link.quality}:{kind:/m3u8/i.test(link.url)?'hls':/\.webm(?:[?#]|$)/i.test(link.url)?'webm':'mp4',url:sameSourceURL(link.url,source.url),headers:credentialsHeaders(source),allowedOrigins:[networkURL(source.url).origin],host:link.host,version:link.version,quality:link.quality};
-  if(!remote)await verifyMedia(candidate);const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(candidate);candidate.quality=meta.height+'p';candidate.bytes=Number(meta.size)||candidate.bytes;candidate.audioCodec=meta.audioCodec;candidate.duration=Number(meta.duration)||undefined;return candidate;
+  if(!remote)await verifyMedia(candidate,{signal});const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(candidate,{signal});candidate.quality=meta.height+'p';candidate.bytes=Number(meta.size)||candidate.bytes;candidate.audioCodec=meta.audioCodec;candidate.duration=Number(meta.duration)||undefined;return candidate;
 }

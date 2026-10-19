@@ -1,4 +1,5 @@
 import { load } from 'cheerio';
+import { classifyVider,organizeVider } from './catalog-match.mjs';
 
 // Vider is a video / directory host. Its /vid/ and /dir/ routes are not
 // interchangeable with Filman's film and series catalog.
@@ -47,19 +48,21 @@ export function parseViderCatalog(html,base,{query='',kind='all'}={}) {
     if(query&&!title.toLowerCase().includes(query.toLowerCase()))return;
     seen.add(url.href);
     if(isDir){folders.push({title,path:url.pathname.replace(/^\//,'')});return;}
-    if(kind==='series')return;
     const poster=anchor.find('img').first().attr('data-src')||anchor.find('img').first().attr('src')||card.find('img').first().attr('data-src')||card.find('img').first().attr('src')||'';
-    items.push({url:url.href,title,kind:'movie',poster:poster?posterURL(poster,base):'',description:clean(card.find('.description,.desc,.summary').first().text()),rating:null,ratingScale:10,year:null});
+    const time=/\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/.exec(anchor.text());
+    const seconds=time?Number(time[1]||0)*3600+Number(time[2])*60+Number(time[3]):0;
+    const classification=classifyVider(title,'',seconds);
+    items.push({url:url.href,title,kind:classification.kind,poster:poster?posterURL(poster,base):'',description:clean(card.find('.description,.desc,.summary').first().text()),rating:null,ratingScale:10,year:classification.year});
   });
   const loggedIn=!!$('#btnLogout,a[href*="logout"],a[href*="wyloguj"],form[action*="logout"]').length;
   if(videoPath.test(new URL(base).pathname)){
     items.length=0;folders.length=0;
-    if(!challenge&&kind!=='series'){
+    if(!challenge){
       const detail=parseViderDetail(html,base);
-      if(!query||detail.title.toLowerCase().includes(query.toLowerCase()))items.push({url:base,title:detail.title,kind:'movie',poster:detail.poster,description:detail.description,rating:null,ratingScale:10,year:null});
+      if(!query||detail.title.toLowerCase().includes(query.toLowerCase()))items.push({url:base,title:detail.title,kind:detail.kind,poster:detail.poster,description:detail.description,rating:null,ratingScale:10,year:detail.year});
     }
   }
-  return {items,folders,filters:[],pages:[],challenge,loggedIn,searchScope:query?'Vider: wyszukiwanie w aktualnie otwartym katalogu.':''};
+  return {items:organizeVider(items,base,kind),folders,filters:[],pages:[],challenge,loggedIn,searchScope:query?'Vider: wyszukiwanie w aktualnie otwartym katalogu.':''};
 }
 
 export function parseViderDetail(html,url) {
@@ -71,5 +74,6 @@ export function parseViderDetail(html,url) {
   const posterAddress=$('meta[property="og:image"]').attr('content')||$('video').first().attr('poster')||'';
   const poster=posterAddress?posterURL(posterAddress,url):'';
   const sources=!challenge&&isViderVideo(url)?[{id:'vider-video',host:'Vider',version:'Oryginał',quality:'Automatyczna'}]:[];
-  return {title,description,poster,kind:'movie',rating:null,ratingScale:10,year:null,episodes:[],sources,challenge};
+  const classification=classifyVider(title,description);
+  return {title,description,poster,kind:classification.kind,rating:null,ratingScale:10,year:classification.year,episodes:[],sources,challenge};
 }

@@ -18,7 +18,7 @@ Ikona kosza przy źródle otwiera potwierdzenie **Usuń konfigurację**. Usunię
 
 Obsługiwane są `https://vider.info/` i `https://vider.pl/`, także przy przekierowaniu między tymi domenami. Możesz wskazać konkretny katalog lub film.
 
-W wydaniu 1.3.5 wyszukiwanie Vider filtruje tytuły w aktualnie odczytanym katalogu. Wyszukiwanie całego portalu, grupowanie seriali w sezony i odcinki oraz rozpoznawanie polskiej wersji i jakości są planowane jako osobna poprawka. Obecnie każdy materiał Vider jest osobną pozycją w katalogu filmów.
+Katalog Vider rozdziela seriale z rozpoznanymi oznaczeniami odcinków, filmy oraz pozostałe nagrania. Odcinki są grupowane według sezonu i numeru. Możesz też włączyć łączenie zgodnych tytułów Vider z pozycjami z innych źródeł; wówczas Vider staje się dodatkowym hostingiem filmu lub odcinka. Opcja jest dostępna w **Ustawienia → Źródła** i działa na pozycjach już odczytanych do biblioteki.
 
 Po zapisaniu wybierz **Zaloguj / CAPTCHA**, zaloguj się do portalu, zaakceptuj wymagane ustawienia strony i zakończ sesję przyciskiem **Zakończ i zachowaj sesję**. Sprawdzanie źródła rozpoczniesz w szczegółach materiału. Brak dostępnego standardowego strumienia jest zgłaszany w panelu. Weryfikacja publicznego katalogu nie jest gwarancją odtwarzania każdego filmu bez logowania.
 

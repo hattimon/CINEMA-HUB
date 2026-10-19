@@ -8,6 +8,11 @@ import { assertSourceAvailable,blockSource,parseRetryAfter } from './limits.mjs'
 import { isViderVideo,viderURL } from './vider-parser.mjs';
 import { viderPageReady } from './vider-page.mjs';
 import { browserHeaded } from './browser-mode.mjs';
+import { abortable } from './playback-work.mjs';
+
+export function decorativeVideo(address) {
+  try{return /(^|\.)(tenor\.com|giphy\.com|giphy\.gif)$/.test(new URL(address).hostname);}catch{return true;}
+}
 
 async function clearClickAdvertisements(page,selector,origin) {
   await page.evaluate(({selector,origin})=>{
@@ -42,7 +47,7 @@ async function hostingDiagnostic(page,selector,pages) {
   console.warn('hosting_diagnostic',JSON.stringify({target,portal,frames}));
 }
 
-async function clickInterceptingAdvertisement(page,selector) {
+async function activateCoveredHosting(page,selector) {
   const point=await page.evaluate(selector=>{
     const target=document.querySelector(selector);if(!target)return null;
     const box=target.getBoundingClientRect(),x=box.x+box.width/2,y=box.y+box.height/2;
@@ -53,12 +58,14 @@ async function clickInterceptingAdvertisement(page,selector) {
     return {x,y};
   },selector);
   if(!point)return false;
-  await page.mouse.click(point.x,point.y);return true;
+  // Activate the selected hosting's own handler. Clicking the covering advert
+  // consumes no hosting token and can recreate the same overlay indefinitely.
+  await page.locator(selector).evaluate(element=>element.click());return true;
 }
 
 export class SourceBrowser {
-  contexts=new Map(); locks=new Map(); lease=null; cache=new Map(); retired=new Set();
-  async exclusive(id,work) { if(process.env.BROWSER_SERIAL==='true')id='shared';const previous=this.locks.get(id)||Promise.resolve();let release;const lock=new Promise(r=>release=r);const tail=previous.catch(()=>{}).then(()=>lock);this.locks.set(id,tail);await previous.catch(()=>{});try{return await work();}finally{release();if(this.locks.get(id)===tail)this.locks.delete(id);} }
+  contexts=new Map(); locks=new Map(); lease=null; cache=new Map(); htmlPending=new Map(); retired=new Set();
+  async exclusive(id,work,signal) { if(process.env.BROWSER_SERIAL==='true')id='shared';const previous=this.locks.get(id)||Promise.resolve();let release;const lock=new Promise(r=>release=r);const tail=previous.catch(()=>{}).then(()=>lock);this.locks.set(id,tail);try{await abortable(previous.catch(()=>{}),signal);signal?.throwIfAborted();return await work();}finally{release();void tail.then(()=>{if(this.locks.get(id)===tail)this.locks.delete(id);});} }
   async context(source,headed=false) {
     if(this.retired.has(source.id))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});
     if(process.env.BROWSER_SERIAL==='true'&&this.lease&&this.lease.sourceId!==source.id)throw Object.assign(new Error('Trwa ręczne logowanie do źródła. Zakończ je przed sprawdzaniem innego konta.'),{status:409});
@@ -76,24 +83,42 @@ export class SourceBrowser {
     context.on('page',page=>{if(!headed)page.on('popup',popup=>{if(isAdvertisement(popup.url()))popup.close().catch(()=>{});});});
     this.contexts.set(source.id,context);return context;
   }
-  async page(source,url,work) {return this.exclusive(source.id,async()=>{
+  async page(source,url,work,{signal}={}) {return this.exclusive(source.id,async()=>{
+    signal?.throwIfAborted();
     assertSourceAvailable(source.id);
     if(source.type==='vider') {if(!viderURL(url,source.url))throw new Error('Adres wykracza poza wybrane źródło Vider.');}
     else sameSourceURL(url,source.url);
     const context=await this.context(source),page=await context.newPage();
+    const abort=()=>{void page.close().catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
     try {
+      signal?.throwIfAborted();
       const response=await page.goto(url,{referer:source.url,waitUntil:'domcontentloaded',timeout:30000});
       if(source.type==='vider'&&!viderURL(page.url(),source.url))throw new Error('Vider przekierował poza skonfigurowany portal.');
       if(response?.status()>=400||new URL(page.url()).pathname!==new URL(url).pathname){const redirects=[];for(let request=response?.request();request;request=request.redirectedFrom())redirects.push({host:new URL(request.url()).hostname,path:new URL(request.url()).pathname});console.warn('portal_navigation',JSON.stringify({status:response?.status(),expectedPath:new URL(url).pathname,redirects}));}
       if(response?.status()===429){const retryAfter=blockSource(source.id,parseRetryAfter(response.headers()['retry-after']));throw Object.assign(new Error('Portal ograniczył liczbę zapytań.'+(retryAfter?'':' Nie podał terminu odblokowania.')),{status:429,retryAfter});}
       await page.locator('body').waitFor();
+      if([401,403].includes(response?.status())||/Just a moment|Verify you are human|Attention Required/i.test(await page.title()))throw Object.assign(new Error('Portal wymaga potwierdzenia dostępu. Otwórz logowanie / CAPTCHA w ustawieniach źródła.'),{status:409,requiresAction:true});
       // Wait for actual AJAX content, not the account menu's collection link.
       if(source.type==='vider')try{await page.waitForFunction(viderPageReady,null,{timeout:25000});}catch{throw Object.assign(new Error('Vider nie załadował listy filmów. Otwórz logowanie / CAPTCHA i sprawdź stronę źródła.'),{status:409});}
       if(/(?:zbyt (?:wiele|dużo).{0,35}(?:zapyt|źród)|too many requests|czasow.{0,25}blokad)/i.test((await page.locator('body').innerText()).slice(0,16000))){throw Object.assign(new Error('Portal zgłosił ograniczenie dostępu bez podania terminu odblokowania.'),{status:429});}
       return await work(page,context);
-    }finally{await page.close().catch(()=>{});if(process.env.BROWSER_CLOSE_AFTER_WORK==='true'&&this.lease?.sourceId!==source.id){this.contexts.delete(source.id);await context.close().catch(()=>{});}}
-  });}
-  async html(source,url) {assertSourceAvailable(source.id);if(this.retired.has(source.id))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});const key=source.id+':'+url;const cached=this.cache.get(key);if(cached?.expires>Date.now())return cached.value;return this.page(source,url,async page=>{if(source.type!=='vider')await page.waitForFunction(()=>!!document.querySelector('#item-list,#single-info,.item-list,#links,[id^="filter-"],input[type="password"],video') || /Just a moment|Verify you are human/.test(document.title),null,{timeout:5000}).catch(()=>{});const value=await page.content();const challenge=await page.evaluate(()=>/Just a moment|Verify you are human|captcha/i.test(document.title)||[...document.querySelectorAll('.g-recaptcha,iframe[src*="captcha"],#cf-challenge-running')].some(e=>e.getBoundingClientRect().width>0));if(!challenge&&!this.retired.has(source.id)){if(this.cache.size>150)this.cache.delete(this.cache.keys().next().value);this.cache.set(key,{value,expires:Date.now()+5*60000});}return value;});}
+    }finally{signal?.removeEventListener('abort',abort);await page.close().catch(()=>{});if(process.env.BROWSER_CLOSE_AFTER_WORK==='true'&&this.lease?.sourceId!==source.id){this.contexts.delete(source.id);await context.close().catch(()=>{});}}
+  },signal);}
+  async html(source,url) {
+    assertSourceAvailable(source.id);
+    if(this.retired.has(source.id))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});
+    const key=source.id+':'+url,cached=this.cache.get(key);
+    if(cached?.expires>Date.now())return cached.value;
+    if(this.htmlPending.has(key))return this.htmlPending.get(key);
+    const pending=this.page(source,url,async page=>{
+      if(source.type!=='vider')await page.waitForFunction(()=>!!document.querySelector('#item-list,#single-info,.item-list,#links,[id^="filter-"],input[type="password"],video') || /Just a moment|Verify you are human/.test(document.title),null,{timeout:5000}).catch(()=>{});
+      const value=await page.content();
+      const challenge=await page.evaluate(()=>/Just a moment|Verify you are human|captcha/i.test(document.title)||[...document.querySelectorAll('.g-recaptcha,iframe[src*="captcha"],#cf-challenge-running')].some(e=>e.getBoundingClientRect().width>0));
+      if(!challenge&&!this.retired.has(source.id)){if(this.cache.size>150)this.cache.delete(this.cache.keys().next().value);this.cache.set(key,{value,expires:Date.now()+5*60000});}
+      return value;
+    }).finally(()=>{if(this.htmlPending.get(key)===pending)this.htmlPending.delete(key);});
+    this.htmlPending.set(key,pending);return pending;
+  }
   async openLogin(source,userId) {
     if(this.lease && this.lease.userId!==userId)throw Object.assign(new Error('Inny użytkownik kończy logowanie. Spróbuj później.'),{status:409});
     if(this.lease?.sourceId===source.id)return {url:'/connect',expires:this.lease.expires};
@@ -122,7 +147,7 @@ export class SourceBrowser {
       return removeConfiguration();
     });}catch(error){this.retired.delete(id);throw error;}
   }
-  async resolveVider(source,pageURL,link,onProgress=()=>{}) {
+  async resolveVider(source,pageURL,link,onProgress=()=>{},{signal}={}) {
     const video=viderURL(pageURL,source.url);
     if(!video||!isViderVideo(video.href)||link.id!=='vider-video')throw new Error('Nieprawidłowe wideo lub hosting Vider.');
     onProgress('Odczytuję odtwarzacz Vider…');
@@ -187,22 +212,24 @@ export class SourceBrowser {
             if(cookies.length)headers.Cookie=cookies.map(cookie=>`${cookie.name}=${cookie.value}`).join('; ');
             if(candidate.origin)headers.Origin=candidate.origin;
             const media={url:candidate.url,kind:candidate.kind,headers,allowedOrigins:[new URL(source.url).origin]};
-            await verifyMedia(media);const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(media);
+            await verifyMedia(media,{signal});const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(media,{signal});
             if(Number(meta.duration)>0&&Number(meta.duration)<60)continue;
             return {...media,host:'Vider',version:'Oryginał',quality:meta.height?meta.height+'p':'Automatyczna',audioCodec:meta.audioCodec,duration:Number(meta.duration)||undefined};
           }catch(error){console.warn('vider_media_probe',String(error.message).replace(/https?:\/\/\S+/g,'[adres]').slice(0,160));}
         }
         throw new Error('Nie udało się potwierdzić strumienia Vider.');
       }finally{context.off('response',observe);page.off('popup',onPopup);for(const popup of popups)await popup.close().catch(()=>{});}
-    });
+    },{signal});
   }
-  async resolve(source,pageURL,link,onProgress=()=>{}) {
+  async resolve(source,pageURL,link,onProgress=()=>{},{signal,fresh=false}={}) {
     onProgress('Odczytuję stronę wybranego filmu…');
     return this.page(source,pageURL,async(page,context)=>{
-      const candidates=[];let selected=false,playerClick=false,portalRequest=false,blocked=false,blockedUntil;const pages=new Set([page]),requests=[],responses=[],playerTargets=new Set(),followedTargets=new Set();
+      const candidates=[];let selected=false,playerClick=false,portalRequest=false,blocked=false,blockedUntil,hostingLimit;const pages=new Set([page]),requests=[],responses=[],playerTargets=new Set(),followedTargets=new Set();
       const sourceOrigin=new URL(source.url).origin;
-      const controller=new AbortController();const timer=setTimeout(()=>{controller.abort();for(const target of pages)void target.close().catch(()=>{});},75000);
-      const observe=target=>{pages.add(target);target.on('response',response=>{if(!selected||response.status()>=400)return;const url=response.url(),type=response.headers()['content-type']||'';if(isAdvertisement(url))return;if(/\.m3u8(?:[?#]|$)/i.test(url)||/mpegurl/i.test(type)||/video\/mp4/i.test(type))candidates.push({url,kind:/m3u8|mpegurl/i.test(url+' '+type)?'hls':'mp4',referer:response.request().headers().referer||target.url(),headers:response.request().headers()});});};
+      const controller=new AbortController();const abort=()=>{controller.abort();for(const target of pages)void target.close().catch(()=>{});};
+      const timer=setTimeout(abort,75000);signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
+      const observe=target=>{pages.add(target);target.on('response',response=>{if(!selected)return;const url=response.url(),type=response.headers()['content-type']||'';if(isAdvertisement(url)||decorativeVideo(url))return;
+        if(response.status()>=400){if(response.status()===429&&new URL(url).origin!==sourceOrigin&&['document','media'].includes(response.request().resourceType())){const delay=parseRetryAfter(response.headers()['retry-after']);hostingLimit=Object.assign(new Error('Hosting '+link.host+' ograniczył dostęp.'+(delay?'':' Termin odblokowania nie jest znany.')),{status:429,scope:'hosting',retryAfter:delay?Date.now()+delay:undefined});}return;}if(/\.m3u8(?:[?#]|$)/i.test(url)||/mpegurl/i.test(type)||/video\/mp4/i.test(type))candidates.push({url,kind:/m3u8|mpegurl/i.test(url+' '+type)?'hls':'mp4',referer:response.request().headers().referer||target.url(),headers:response.request().headers()});});};
       const responseObserver=response=>{
         if(!selected)return;const url=new URL(response.url());if(url.origin!==sourceOrigin)return;
         if(response.status()===429){blocked=true;blockedUntil=blockSource(source.id,parseRetryAfter(response.headers()['retry-after']));controller.abort();}
@@ -260,19 +287,19 @@ export class SourceBrowser {
         await button.evaluate(element=>element.scrollIntoView({behavior:'instant',block:'center',inline:'center'}));
         await clearClickAdvertisements(page,selector,new URL(source.url).origin);selected=true;
         if(await button.getAttribute('data-mp4')!==null)throw new Error('Źródło premium wymaga odtworzenia w odtwarzaczu portalu.');
-        const savedPlayer=playerRoute(source.id,pageURL,link);
+        const savedPlayer=fresh?undefined:playerRoute(source.id,pageURL,link);
         if(savedPlayer){playerTargets.add(savedPlayer);portalRequest=true;onProgress('Otwieram zapamiętany odtwarzacz bez ponownego pytania portalu…');}
         for(let attempt=0;attempt<5&&!portalRequest&&!controller.signal.aborted;attempt++){
           await button.evaluate(element=>element.scrollIntoView({behavior:'instant',block:'center',inline:'center'}));
           try{await button.click({timeout:1200});}catch(error){
-            if(!/intercepts pointer events/.test(error.message)||!await clickInterceptingAdvertisement(page,selector)){await hostingDiagnostic(page,selector,pages);throw error;}
+            if(!/intercepts pointer events|Timeout/.test(error.message)||!await activateCoveredHosting(page,selector)){await hostingDiagnostic(page,selector,pages);throw error;}
           }
           await new Promise(r=>setTimeout(r,650));
           if(candidates.length||await page.locator('iframe[src]').evaluateAll(frames=>frames.some(f=>/embed\.tmp-url\.pro/.test(f.src))))break;
         }
         onProgress('Uruchamiam odtwarzacz hostingu…');
         const deadline=Date.now()+32000;let started=false,providerSource=false;const passedGates=new Set(),openedRedirects=new Set();
-        while(Date.now()<deadline) {
+        while(Date.now()<deadline&&!controller.signal.aborted) {
           for(const url of playerTargets){if(followedTargets.has(url)||followedTargets.size>=1)continue;followedTargets.add(url);if([...pages].some(p=>!p.isClosed()&&p.frames().some(f=>f.url()===url)))continue;const target=await context.newPage();await target.goto(url,{referer:pageURL,waitUntil:'domcontentloaded',timeout:10000}).catch(()=>{});}
           for(const target of pages) for(const frame of target.frames()) {
             if(frame.parentFrame()&&new URL(frame.url()||'about:blank').hostname===link.host&&!openedRedirects.has(frame.url())&&/redirecting/i.test(await frame.title().catch(()=>''))){
@@ -288,7 +315,7 @@ export class SourceBrowser {
                 return sources.filter(s=>!s.drm&&typeof s.file==='string'&&!/dash|mpd/i.test(s.type||'')).map(s=>({url:new URL(s.file,location.href).href,kind:/hls|mpegurl|m3u8/i.test((s.type||'')+' '+s.file)?'hls':'mp4'})).filter(s=>/^https?:/.test(s.url));
               }catch{return [];}
             }).catch(()=>[]);
-            for(const stream of playlist)if(!isAdvertisement(stream.url)){providerSource=true;candidates.push({...stream,provider:true,referer:frame.url(),headers:{}});}
+            for(const stream of playlist)if(!isAdvertisement(stream.url)&&!decorativeVideo(stream.url)){providerSource=true;candidates.push({...stream,provider:true,referer:frame.url(),headers:{}});}
             if((frameURL.hostname==='embed.tmp-url.pro'||process.env.NODE_ENV==='test'&&frameURL.origin===process.env.FIXTURE_ORIGIN&&frameURL.pathname==='/player-fixture')&&!passedGates.has(frame)){
               const gate=frame.getByRole('button',{name:/^Rozumiem, przejdź dalej/i}).first();
               if(await gate.isVisible().catch(()=>false)&&await gate.isEnabled().catch(()=>false)){
@@ -305,7 +332,7 @@ export class SourceBrowser {
               }
             }
             let found=[];try{found=await frame.locator('video').evaluateAll(videos=>videos.map(v=>({url:v.currentSrc||v.src,duration:v.duration,width:v.videoWidth,height:v.videoHeight,ready:v.readyState,advertisement:!!v.closest('.ad,.ads,.video-ad,.jw-flag-ads')})));}catch{}
-            for(const video of found)if(!video.advertisement&&video.ready>=1&&video.width>=160&&(video.duration>=120||video.duration===Infinity)) {started=true;if(/^https?:/.test(video.url))candidates.push({url:video.url,kind:/m3u8/i.test(video.url)?'hls':'mp4',referer:frame.url(),headers:{}});}
+            for(const video of found)if(!video.advertisement&&!decorativeVideo(video.url)&&video.ready>=1&&video.width>=160&&(video.duration>=120||video.duration===Infinity)) {started=true;if(/^https?:/.test(video.url))candidates.push({url:video.url,kind:/m3u8/i.test(video.url)?'hls':'mp4',referer:frame.url(),headers:{}});}
             let playing=false;try{playing=await frame.locator('video').evaluateAll(videos=>videos.some(video=>!video.paused&&!video.ended));}catch{}
             if(!started&&!playing) {const play=frame.getByRole('button',{name:/^(Play|Odtwórz|Play video|Start video)$/i}).filter({visible:true}).or(frame.locator('.jw-icon-display,.jw-icon-playback.jw-icon-play,.vjs-big-play-button,.plyr__control[data-plyr="play"]').filter({visible:true})).first();try{if(await play.isVisible()){
                 playerClick=true;
@@ -320,6 +347,7 @@ export class SourceBrowser {
           if(candidates.length)break;await new Promise(r=>setTimeout(r,600));
         }
         if(blocked)throw Object.assign(new Error('Portal ograniczył liczbę zapytań.'+(blockedUntil?'':' Nie podał terminu odblokowania.')),{status:429,retryAfter:blockedUntil});
+        if(!candidates.length&&hostingLimit)throw hostingLimit;
         if(!candidates.length){console.warn('hosting_requests',JSON.stringify({requests,responses}));await hostingDiagnostic(page,selector,pages);throw new Error('Nie wykryto strumienia wideo w wybranym hostingu.');}
         onProgress('Potwierdzam obraz, dźwięk i rzeczywistą jakość…');
         const unique=[...new Map(candidates.reverse().map(c=>[c.url,c])).values()].sort((a,b)=>Number(!!b.provider)-Number(!!a.provider)||Number(b.kind==='hls')-Number(a.kind==='hls')).slice(0,3);
@@ -328,8 +356,8 @@ export class SourceBrowser {
           const candidate={url:found.url,kind:found.kind,headers,allowedOrigins:[new URL(source.url).origin]};await verifyMedia(candidate,{signal:controller.signal});const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(candidate,{signal:controller.signal});if(Number(meta.duration)>0&&Number(meta.duration)<60)throw new Error('Materiał krótszy niż minuta — pomijam wstawkę.');return {...candidate,host:link.host,quality:meta.height+'p',version:link.version,audioCodec:meta.audioCodec,duration:Number(meta.duration)||undefined};
         }catch(error){console.warn('media_probe_failure',JSON.stringify({kind:found.kind,host:new URL(found.url).hostname,message:String(error.message).replace(/https?:\/\/\S+/g,'[adres]').slice(0,200)}));}}
         throw new Error('Nie udało się potwierdzić działającego strumienia.');
-      }finally{clearTimeout(timer);context.off('page',newPage);context.off('request',requestObserver);context.off('response',responseObserver);for(const target of pages)if(target!==page)await target.close().catch(()=>{});}
-    });
+      }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);context.off('page',newPage);context.off('request',requestObserver);context.off('response',responseObserver);for(const target of pages)if(target!==page)await target.close().catch(()=>{});}
+    },{signal});
   }
   async close() {for(const context of this.contexts.values())await context.close().catch(()=>{});this.contexts.clear();}
 }

@@ -5,10 +5,19 @@ import { safeRequest,readBounded,networkURL,uploadStream,basicHeaders } from './
 import { configuredRemote,safePath,capture } from './rclone.mjs';
 import { db,getSource,getDestination,uid,now } from './store.mjs';
 import { resolveLink } from './adapters.mjs';
+import { abortable } from './playback-work.mjs';
+import { setTimeout as pause } from 'node:timers/promises';
 
 export const playbacks=new Map(),checks=new Map();
+const checkControllers=new Map();
+export function cancelCheck(id,userId) {
+  const check=checkFor(id,userId);check.cancelled=true;
+  if(check.status==='checking')check.status='cancelled';
+  checkControllers.get(id)?.abort(Object.assign(new Error('Sprawdzanie anulowano.'),{status:499}));
+  return check;
+}
 export function forgetSource(sourceId,userId) {
-  for(const [id,check]of checks)if(check.sourceId===sourceId&&check.userId===userId){check.cancelled=true;check.ready=[];checks.delete(id);}
+  for(const [id,check]of checks)if(check.sourceId===sourceId&&check.userId===userId){cancelCheck(id,userId);check.ready=[];checks.delete(id);}
   for(const [id,playback]of playbacks)if(playback.sourceId===sourceId&&playback.userId===userId){for(const controller of playback.controllers||[])controller.abort();playbacks.delete(id);}
   for(const row of db.prepare("SELECT id FROM downloads WHERE user_id=? AND json_extract(value,'$.sourceId')=?").all(userId,sourceId))activeDownloads.get(row.id)?.();
 }
@@ -37,16 +46,23 @@ export function orderHostingLinks(links,preferredVersion='Lektor',preferredHosts
 }
 export function rememberPlayback(userId,candidate,context={}) {const id=uid();playbacks.set(id,{...candidate,...context,id,userId,expires:now()+60*60*1000,assets:new Map()});return id;}
 export function playbackFor(id,userId) {const result=playbacks.get(id);if(!result||result.userId!==userId||result.expires<now())throw Object.assign(new Error('Sesja źródła wygasła. Sprawdź źródła ponownie.'),{status:410});result.expires=now()+60*60*1000;return result;}
-export function beginCheck(userId,source,item,episode,links,{stopOnSuccess=false}={}) {
+export function beginCheck(userId,source,item,episode,links,{stopOnSuccess=false,fresh=false,attemptTimeoutMs=75000,pauseMs=1200}={}) {
   const linkIds=links.map(link=>link.id);
-  const duplicate=[...checks.values()].find(c=>c.userId===userId&&c.sourceId===source.id&&c.itemId===item.id&&c.episodeURL===(episode?.url||'')&&c.status==='checking'&&!c.cancelled&&c.stopOnSuccess===stopOnSuccess&&JSON.stringify(c.linkIds)===JSON.stringify(linkIds));if(duplicate)return duplicate.id;
-  const previous=[...checks.values()].filter(c=>c.userId===userId&&c.itemId===item.id&&c.episodeURL===(episode?.url||'')&&c.created>now()-5*60000).flatMap(c=>c.ready);
-  const id=uid();const check={id,userId,sourceId:source.id,itemId:item.id,episodeURL:episode?.url||'',linkIds,stopOnSuccess,status:'checking',checked:0,total:links.length,ready:[],attempted:[],created:now(),expires:now()+60*60*1000,cancelled:false};checks.set(id,check);
-  (async()=>{for(const link of links.slice(0,30)) {if(check.cancelled)break;check.currentHost=link.host;check.attempted.push(link.id);let success=false;try{
+  const duplicate=[...checks.values()].find(c=>c.userId===userId&&c.sourceId===source.id&&c.itemId===item.id&&c.episodeURL===(episode?.url||'')&&c.status==='checking'&&!c.cancelled&&c.stopOnSuccess===stopOnSuccess&&c.fresh===fresh&&JSON.stringify(c.linkIds)===JSON.stringify(linkIds));if(duplicate)return duplicate.id;
+  // One active selection per account/source. A manual selection supersedes the
+  // old automatic run even if its HTTP cancel request arrives a little later.
+  for(const check of checks.values())if(check.userId===userId&&check.sourceId===source.id&&check.status==='checking')cancelCheck(check.id,userId);
+  const previous=fresh?[]:[...checks.values()].filter(c=>c.userId===userId&&c.sourceId===source.id&&c.itemId===item.id&&c.episodeURL===(episode?.url||'')&&c.created>now()-5*60000).flatMap(c=>c.ready);
+  const id=uid();const check={id,userId,sourceId:source.id,itemId:item.id,episodeURL:episode?.url||'',linkIds,stopOnSuccess,fresh,status:'checking',checked:0,total:links.length,ready:[],attempted:[],failures:[],created:now(),expires:now()+60*60*1000,cancelled:false};checks.set(id,check);
+  const controller=new AbortController();checkControllers.set(id,controller);
+  const runSignal=AbortSignal.any([controller.signal,AbortSignal.timeout(240000)]);
+  (async()=>{for(const link of links.slice(0,30)) {if(check.cancelled)break;runSignal.throwIfAborted();check.currentHost=link.host;check.attempted.push(link.id);check.lastError='';let success=false;try{
     const cached=previous.find(ready=>ready.id===link.id&&ready.host===link.host&&ready.version===link.version&&playbacks.get(ready.playbackId)?.expires>now());
     if(cached){check.ready.push(cached);success=true;}
-    else {const candidate=await resolveLink(source,episode?.url||item.url,link,phase=>{if(check.cancelled)throw Object.assign(new Error('Sprawdzanie anulowano.'),{status:499});check.phase=link.host+' · '+phase;});if(check.cancelled)break;if(Number(candidate.duration)>0&&Number(candidate.duration)<60)throw new Error('Materiał trwa krócej niż minutę. Pomijam krótką wstawkę.');const playbackId=rememberPlayback(userId,candidate,{sourceId:source.id,itemId:item.id,pageURL:episode?.url||item.url,link,episode});check.ready.push({id:link.id,host:link.host,quality:candidate.quality||link.quality,version:link.version,kind:candidate.kind,playbackId});success=true;}
-  }catch(error){check.lastError=/Timeout|locator|page\.|Call log/i.test(error.message)?'Portal nie otworzył hostingu. Sprawdź sesję lub wybierz inny link.':String(error.message).replace(/https?:\/\/\S+/g,'[adres źródła]').slice(0,180);if(error.status===429){check.blocked=true;check.retryAfter=error.retryAfter;}}check.checked++;if(check.blocked||(success&&stopOnSuccess))break;}check.status=check.blocked?'blocked':check.cancelled?'cancelled':'done';})().catch(()=>{check.status='error';check.lastError='Sprawdzanie nie zostało zakończone. Spróbuj ponownie.';});return id;
+    else {const effectiveSource=link.sourceId?getSource(link.sourceId,userId):source;if(effectiveSource.enabled===0)throw new Error('Źródło zostało wyłączone.');const providerLink={...link,id:link.originalId||link.id},pageURL=link.pageURL||episode?.url||item.url;const signal=AbortSignal.any([runSignal,AbortSignal.timeout(attemptTimeoutMs)]);const candidate=await abortable(resolveLink(effectiveSource,pageURL,providerLink,phase=>{signal.throwIfAborted();check.phase=link.host+' · '+phase;},{signal,fresh}),signal);if(check.cancelled)break;if(Number(candidate.duration)>0&&Number(candidate.duration)<60)throw new Error('Materiał trwa krócej niż minutę. Pomijam krótką wstawkę.');const playbackId=rememberPlayback(userId,candidate,{sourceId:effectiveSource.id,itemId:item.id,pageURL,link:providerLink,selectedLinkId:link.id,episode});check.ready.push({id:link.id,host:link.host,quality:candidate.quality||link.quality,version:link.version,kind:candidate.kind,playbackId});success=true;}
+  }catch(error){if(check.cancelled)break;check.lastError=error.name==='TimeoutError'?'Hosting nie odpowiedział w wyznaczonym czasie.':/Timeout|locator|page\.|Call log/i.test(error.message)?'Portal nie otworzył hostingu. Sprawdź sesję lub wybierz inny link.':String(error.message).replace(/https?:\/\/\S+/g,'[adres źródła]').slice(0,180);check.failures.push({host:link.host,message:check.lastError,status:error.status,retryAfter:error.retryAfter,scope:error.scope});if(error.requiresAction){check.requiresAction=true;}if(error.status===429&&error.scope!=='hosting'){check.blocked=true;check.retryAfter=error.retryAfter;}}check.checked++;if(check.blocked||check.requiresAction||(success&&stopOnSuccess))break;
+    if(check.checked<Math.min(links.length,30)){check.phase='Krótka przerwa przed kolejnym hostingiem…';await pause(pauseMs,undefined,{signal:runSignal});}
+  }check.status=check.blocked?'blocked':check.requiresAction?'action_required':check.cancelled?'cancelled':'done';})().catch(()=>{if(check.cancelled){check.status='cancelled';return;}check.status='error';check.lastError='Przekroczono czas przygotowania. Wybierz hosting ręcznie lub ponów próbę.';}).finally(()=>checkControllers.delete(id));return id;
 }
 export function checkFor(id,userId) {const check=checks.get(id);if(!check||check.userId!==userId)throw Object.assign(new Error('Nie znaleziono sprawdzania.'),{status:404});return check;}
 export function rewritePlaylist(text,base,makeURL) {

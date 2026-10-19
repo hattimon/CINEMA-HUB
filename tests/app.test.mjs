@@ -52,6 +52,7 @@ before(async()=>{
     if(url.pathname==='/link/token'){hostingClicks++;return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/player-fixture').toString('base64')}));}
     if(url.pathname==='/link/episode-token')return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/episode-player').toString('base64')}));
     if(url.pathname==='/episode-player')return res.end('<video src="/film.mp4" autoplay muted controls></video>');
+    if(url.pathname==='/m/covered')return res.end(movie+'<style>#links a{display:block;width:200px;height:30px}</style><div style="position:fixed;inset:10%;z-index:100000"><a target="_blank" href="https://unknown-advert.invalid/pop" style="display:block;width:100%;height:100%"></a></div><script>document.querySelectorAll("[data-link-id]").forEach(link=>link.onclick=async event=>{event.preventDefault();await fetch("/link/episode-token");const frame=document.createElement("iframe");frame.src="/episode-player";document.body.append(frame);});</script>');
     if(url.pathname==='/empty-frame')return res.end('<html><body></body></html>');
     if(url.pathname==='/player-fixture')return res.end('<button class="btn-ok" disabled>Rozumiem, przejdź dalej</button><div id="player" hidden><button aria-label="Play video">Play video</button></div><script>const gate=document.querySelector(".btn-ok");setTimeout(()=>gate.disabled=false,1500);gate.onclick=()=>{gate.remove();document.querySelector("#player").hidden=false;};let count=0;document.querySelector("[aria-label]").onclick=()=>{if(++count<3){window.open("/popup-ad","_blank");return;}const video=document.createElement("video");video.src="/slow-film.mp4";video.muted=true;video.controls=true;document.body.append(video);document.querySelector("[aria-label]").remove();const toggle=document.createElement("button");toggle.className="jw-icon-playback jw-icon-pause";toggle.onclick=()=>{fetch("/player-pause-click");video.pause();};document.body.append(toggle);video.play().catch(()=>{});};</script>');
     if(url.pathname==='/popup-ad')return res.end('<html>Advertisement popup</html>');
@@ -418,7 +419,7 @@ test('Automatic mode tries sources sequentially, stops on success, and preserves
     {id:'dubbing-on-luluvdo',host:'luluvdo.com',version:'Dubbing PL',quality:'720p'},
     {id:'lektor-on-other',host:'other',version:'Lektor PL',quality:'480p'}
   ],'Lektor',['voe.sx','luluvdo.com','savefiles.com']).map(l=>l.id),['lektor-on-other','dubbing-on-luluvdo','dubbing-on-savefiles','subtitles-on-voe']);
-  const poll=async id=>{for(let i=0;i<20;i++){const check=media.checkFor(id,owner.id);if(check.status!=='checking')return check;await new Promise(r=>setTimeout(r,10));}throw new Error('Automatyczna weryfikacja nie zakończyła się.');};
+  const poll=async id=>{for(let i=0;i<300;i++){const check=media.checkFor(id,owner.id);if(check.status!=='checking')return check;await new Promise(r=>setTimeout(r,10));}throw new Error('Automatyczna weryfikacja nie zakończyła się.');};
   try{
     sourceBrowser.resolve=async(_source,_page,link)=>{attempts.push(link.id);if(link.id==='bad')throw new Error('Hosting nie działa.');return {kind:'mp4',url:origin+'/film.mp4',headers:{},host:link.host,quality:'180p'};};
     const id=media.beginCheck(owner.id,{id:'sequence-source',type:'filman'},item,undefined,sources,{stopOnSuccess:true});
@@ -427,6 +428,10 @@ test('Automatic mode tries sources sequentially, stops on success, and preserves
     const retry=await poll(media.beginCheck(owner.id,{id:'sequence-source',type:'filman'},item,undefined,[sources[2]],{stopOnSuccess:true}));
     assert.deepEqual(attempts,['unused']);assert.equal(retry.ready[0].id,'unused');
     attempts.length=0;const deadline=Date.now()+30000;
+    sourceBrowser.resolve=async(_source,_page,link)=>{attempts.push(link.id);if(link.id==='bad')throw Object.assign(new Error('Ten hosting ograniczył dostęp'),{status:429,scope:'hosting',retryAfter:deadline});return {kind:'mp4',url:origin+'/film.mp4',headers:{},host:link.host,quality:'180p'};};
+    const hostLimited=await poll(media.beginCheck(owner.id,{id:'sequence-source',type:'filman'},{id:'host-limit-item',url:item.url},undefined,sources,{stopOnSuccess:true,pauseMs:0}));
+    assert.equal(hostLimited.status,'done');assert.deepEqual(attempts,['bad','good']);assert.equal(hostLimited.blocked,undefined,'A host-only limit does not stop Auto');assert.equal(hostLimited.failures[0].scope,'hosting');assert.equal(hostLimited.ready[0].id,'good');
+    attempts.length=0;
     sourceBrowser.resolve=async(_source,_page,link)=>{attempts.push(link.id);throw Object.assign(new Error('Ograniczenie portalu'),{status:429,retryAfter:deadline});};
     const blocked=await poll(media.beginCheck(owner.id,{id:'sequence-source',type:'filman'},{id:'other-sequence-item',url:item.url},undefined,sources,{stopOnSuccess:true}));
     assert.equal(blocked.status,'blocked');assert.equal(blocked.retryAfter,deadline);assert.deepEqual(attempts,['bad']);
@@ -435,6 +440,41 @@ test('Automatic mode tries sources sequentially, stops on success, and preserves
     assert.equal(unknown.status,'blocked');assert.equal(unknown.retryAfter,undefined);
   }finally{sourceBrowser.resolve=original;}
 });
+test('Cancellation aborts running and queued checks; manual selection supersedes Auto',async()=>{
+  const original=sourceBrowser.resolve,owner=(await request('/auth/me')).value;
+  let started,aborted=false,finishOld;
+  const begun=new Promise(resolve=>started=resolve),stalled=new Promise(resolve=>finishOld=resolve);
+  const source={id:'cancel-source',type:'filman'},item={id:'cancel-item',url:origin+'/m/test'};
+  const links=[{id:'stalled',host:'stalled',version:'Lektor',quality:'720p'},{id:'manual',host:'manual',version:'Lektor',quality:'720p'}];
+  try{
+    sourceBrowser.resolve=async(_source,_page,link,_progress,{signal})=>{if(link.id==='stalled'){signal.addEventListener('abort',()=>aborted=true,{once:true});started();return stalled;}return {kind:'mp4',url:origin+'/film.mp4',host:link.host,quality:'180p'};};
+    const old=media.beginCheck(owner.id,source,item,undefined,links,{stopOnSuccess:true});await begun;
+    const manual=media.beginCheck(owner.id,source,item,undefined,[links[1]],{pauseMs:0});
+    await new Promise(resolve=>setTimeout(resolve,10));assert.equal(aborted,true);assert.equal(media.checkFor(old,owner.id).status,'cancelled');assert.equal(media.checkFor(manual,owner.id).ready[0].id,'manual');
+    finishOld({kind:'mp4',url:origin+'/film.mp4',host:'stalled'});await new Promise(resolve=>setTimeout(resolve,10));assert.equal(media.checkFor(old,owner.id).ready.length,0,'A late Auto result cannot replace the manual choice');
+    assert.equal((await request('/checks/'+manual+'/cancel',{})).status,200);
+    assert.equal((await request('/checks/'+manual+'/cancel',{},other)).status,404);
+  }finally{finishOld?.({});sourceBrowser.resolve=original;}
+  const {SourceBrowser}=await import('../server/browser.mjs'),queue=new SourceBrowser();let release;
+  const first=queue.exclusive('same',()=>new Promise(resolve=>release=resolve));await new Promise(resolve=>setTimeout(resolve,0));
+  const controller=new AbortController(),second=queue.exclusive('same',()=>assert.fail('Cancelled queue entry ran'),controller.signal);controller.abort();await assert.rejects(second);
+  let thirdRan=false;const third=queue.exclusive('same',()=>{thirdRan=true;});await new Promise(resolve=>setTimeout(resolve,10));assert.equal(thirdRan,false,'Cancelling a queued entry must not bypass the active source lock');release();await Promise.all([first,third]);assert.equal(thirdRan,true);
+});
+
+test('A stalled hosting times out, pauses before fallback and can be retried without stale cache',async()=>{
+  const original=sourceBrowser.resolve,owner=(await request('/auth/me')).value;let aborted=false,calls=0;
+  const source={id:'timeout-source',type:'filman'},item={id:'timeout-item',url:origin+'/m/test'},links=[{id:'slow',host:'slow',version:'Lektor',quality:'720p'},{id:'good',host:'good',version:'Lektor',quality:'720p'}];
+  const poll=async id=>{for(let i=0;i<100;i++){const check=media.checkFor(id,owner.id);if(check.status!=='checking')return check;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('Timed out');};
+  try{
+    sourceBrowser.resolve=async(_source,_page,link,_progress,{signal})=>{calls++;if(link.id==='slow'){signal.addEventListener('abort',()=>aborted=true,{once:true});return new Promise(()=>{});}return {kind:'mp4',url:origin+'/film.mp4',host:link.host,quality:'180p'};};
+    const started=Date.now(),id=media.beginCheck(owner.id,source,item,undefined,links,{stopOnSuccess:true,attemptTimeoutMs:50,pauseMs:25});const check=await poll(id);
+    assert.equal(aborted,true);assert.ok(Date.now()-started>=75);assert.equal(check.ready[0].id,'good');assert.equal(calls,2);
+    await poll(media.beginCheck(owner.id,source,item,undefined,[links[1]],{pauseMs:0}));assert.equal(calls,2,'Normal selection may reuse a verified stream');
+    await poll(media.beginCheck(owner.id,source,item,undefined,[links[1]],{fresh:true,pauseMs:0}));assert.equal(calls,3,'Retry resolves a fresh stream instead of returning the same expired URL');
+  }finally{sourceBrowser.resolve=original;}
+  const {decorativeVideo}=await import('../server/browser.mjs');assert.equal(decorativeVideo('https://media.tenor.com/clip.mp4'),true);assert.equal(decorativeVideo('https://i.giphy.com/clip.mp4'),true);assert.equal(decorativeVideo('https://cdn.example-film.test/clip.mp4'),false);
+});
+
 test('Manual portal probing uses one hosting and excludes dead or ad content',{skip:!hasTools||!process.env.CHROMIUM_PATH},async()=>{
   const result=await request('/sources',{name:'Portal fixture',type:'filman',url:origin+'/',credentials:{}});portalSource=result.value;const cat=(await request('/catalog',{sources:[result.value.id],kind:'movies',query:'Film',filters:{category:['1','12'],quality:['3']}})).value;assert.equal(cat.errors.length,0,JSON.stringify(cat.errors));assert.equal(cat.groups[0].items.length,1);
   const detail=(await request('/items/'+cat.groups[0].items[0].id)).value;assert.equal(detail.sources.length,2);assert.equal((await request('/items/'+detail.id+'/check',{})).status,400);
@@ -446,6 +486,11 @@ test('Manual portal probing uses one hosting and excludes dead or ad content',{s
   let retried;const retryDeadline=Date.now()+(process.arch==='arm64'?90000:24000);while(Date.now()<retryDeadline){retried=(await request('/checks/'+retry.value.id)).value;if(retried.status!=='checking')break;await new Promise(r=>setTimeout(r,150));}
   assert.equal(retried.ready.length,1,retried.lastError);assert.equal(hostingClicks-clicksBefore,1,'A manual retry reuses its encrypted player route without another portal token request');
 });
+test('A covering advertisement does not receive the selected hosting click',{skip:!hasTools||!process.env.CHROMIUM_PATH},async()=>{
+  const source={...portalSource},seen=[];const context=await sourceBrowser.context(source);const observe=request=>{if(request.url().includes('unknown-advert.invalid'))seen.push(request.url());};context.on('request',observe);
+  try{const result=await sourceBrowser.resolve(source,origin+'/m/covered',{id:'101',host:'Działający hosting',version:'Lektor',quality:'720p'});assert.equal(result.kind,'mp4');assert.deepEqual(seen,[],'The legitimate hosting handler runs without navigating to the advert');}finally{context.off('request',observe);}
+});
+
 test('HLS segments are proxied and manual download produces playable MP4',{skip:!hasTools},async()=>{
   const own=(await request('/auth/me')).value;const data=store.saveItem(source.id,{url:origin+'/stream.m3u8',title:'Strumień HLS',kind:'movie',sources:[{id:'hls',url:origin+'/stream.m3u8',host:'Fixture',version:'Lektor',quality:'180p'}]});
   const candidate={kind:'hls',url:origin+'/stream.m3u8',headers:{},allowedOrigins:[origin]};const probed=await media.probeMedia(candidate);assert.equal(probed.height,180);candidate.audioCodec=probed.audioCodec;
@@ -462,7 +507,7 @@ test('HLS segments are proxied and manual download produces playable MP4',{skip:
 test('Manual cloud queue streams the complete film directly to authenticated WebDAV',{skip:!hasTools},async()=>{
   const destination=(await request('/destinations',{name:'Cloud fixture',type:'webdav',config:{url:origin+'/cloud/',prefix:''},credentials:{username:'viewer',password:'Fixture-cloud-9'}}));assert.equal(destination.status,201);assert.equal(destination.value.credentials,undefined);
   const queue=(await request('/downloads',{playbackId:playback.playbackId,destination:destination.value.id}));assert.equal(queue.status,201);assert.equal((await request('/downloads',{playbackId:playback.playbackId,destination:destination.value.id},other)).status,410);
-  await media.cloudQueue();const job=(await request('/downloads')).value.find(j=>j.id===queue.value.id);assert.equal(job.status,'ready',JSON.stringify(job));assert.match(job.remotePath,/Film lokalny - 180p - [a-f0-9]{8}\.mp4/);assert.equal(cloudFiles.size,1);const buffer=[...cloudFiles.values()][0];assert.equal(job.bytes,buffer.length);
+  await media.cloudQueue();let job;const deadline=Date.now()+15000;do{job=(await request('/downloads')).value.find(j=>j.id===queue.value.id);if(['ready','error'].includes(job.status))break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<deadline);assert.equal(job.status,'ready',JSON.stringify(job));assert.match(job.remotePath,/Film lokalny - 180p - [a-f0-9]{8}\.mp4/);assert.equal(cloudFiles.size,1);const buffer=[...cloudFiles.values()][0];assert.equal(job.bytes,buffer.length);
   const decoded=spawnSync('ffmpeg',['-v','error','-i','pipe:0','-ss','125','-frames:v','1','-f','image2pipe','-vcodec','mjpeg','pipe:1'],{input:buffer,maxBuffer:2*1024*1024});assert.equal(decoded.status,0);assert.ok(decoded.stdout.length>1000);assert.equal(readdirSync(directory,{recursive:true}).some(f=>/\.(mp4|ts)$/i.test(String(f))),false);
 });
 test('TV client navigation and native player preserve progress without a second web stream',{skip:!process.env.CHROMIUM_PATH},async()=>{
@@ -476,7 +521,7 @@ test('TV client navigation and native player preserve progress without a second 
     const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(base,{waitUntil:'domcontentloaded'});
     const card=page.getByRole('button',{name:'Zobacz Film lokalny',exact:true});await card.waitFor({timeout:30000});assert.equal(await page.locator('html').getAttribute('data-tv'),'true');
     await card.focus();await page.keyboard.press('ArrowLeft');assert.equal(await card.evaluate(el=>el===document.activeElement),false,'D-pad moves focus between real controls');
-    await card.click();await page.locator('.playable-row').getByRole('button',{name:'Odtwórz',exact:true}).click({timeout:20000});await page.getByText('1:17',{exact:true}).waitFor({timeout:15000});
+    assert.equal(await page.locator('.movie-card .favorite-float').count(),0);await card.click();assert.equal(await page.locator('.modal').getByRole('button',{name:/^(Do ulubionych|W ulubionych)$/}).count(),1,'Movie favorites remain in details');await page.locator('.playable-row').getByRole('button',{name:'Odtwórz',exact:true}).click({timeout:20000});await page.getByText('1:17',{exact:true}).waitFor({timeout:15000});
     const calls=await page.evaluate(()=>window.nativeCalls);assert.equal(calls.filter(c=>c.type==='play').length,1);assert.equal(calls[0].type,'play','Native settings must follow player creation');assert.ok(calls[0].playbackId);assert.equal(calls[0].position,42);assert.equal(await page.locator('video').evaluate(v=>v.currentSrc),'','Native playback must not also start a WebView stream');
     assert.equal(calls[0].fullscreen,false,'Android starts with the menu visible');
     const overlay=page.locator('.player-overlay');await overlay.getByRole('button',{name:'Pełny ekran',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});
@@ -487,7 +532,7 @@ test('TV client navigation and native player preserve progress without a second 
     await overlay.getByRole('button',{name:'Wznów',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});assert.equal(await overlay.isVisible(),true);
     await page.evaluate(()=>{window.nativeSession.playing=false;window.nativeEmit(window.nativeSession);});await overlay.getByRole('button',{name:'Wróć do menu',exact:true}).click();
     await overlay.getByRole('button',{name:'Zapisz',exact:true}).click();const saveDialog=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zapisz film',exact:true})});await saveDialog.waitFor();await saveDialog.getByRole('button',{name:'Zamknij',exact:true}).click();assert.equal(await overlay.isVisible(),true);
-    await overlay.getByRole('button',{name:'Zmień źródło',exact:true}).click();const sourceDialog=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zmień źródło odtwarzania',exact:true})});await sourceDialog.waitFor();await page.keyboard.press('Escape');await sourceDialog.waitFor({state:'detached'});assert.equal(await overlay.isVisible(),true);
+    await overlay.getByRole('button',{name:'Zmień źródło',exact:true}).click();const sourceDialog=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zmień źródło',exact:true})});await sourceDialog.waitFor();await page.keyboard.press('Escape');await sourceDialog.waitFor({state:'detached'});assert.equal(await overlay.isVisible(),true);
     assert.equal(await page.evaluate(()=>window.nativeCalls.filter(value=>value.type==='play').length),1);assert.equal(await page.evaluate(()=>window.nativeCalls.some(value=>value.type==='stop')),false,'Menu interactions preserve the active native stream');
     let saved;for(let attempt=0;attempt<25;attempt++){saved=(await request('/items/'+item.id+'/progress')).value.find(p=>p.episode==='');if(saved?.position===100)break;await new Promise(r=>setTimeout(r,100));}assert.equal(saved.position,100);
     await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();await page.locator('.player-overlay').waitFor({state:'detached'});assert.equal(await page.evaluate(()=>window.nativeCalls.some(c=>c.type==='stop')),true);
@@ -516,6 +561,148 @@ test('TV client navigation and native player preserve progress without a second 
   }finally{await browser.close();}
 });
 
+test('Theme tab controls menu sound volume independently and renders the selected audio gain',{skip:!process.env.CHROMIUM_PATH},async()=>{
+  const previous=(await request('/settings')).value,otherVolume=(await request('/settings',null,other)).value.soundVolume;
+  for(const invalid of [-1,101,22.5,'70'])assert.equal((await request('/settings',{soundVolume:invalid},admin,'PATCH')).status,400);
+  const {chromium}=await import('playwright'),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
+  const context=await browser.newContext({viewport:{width:1280,height:720},userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.3.6'});
+  const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);
+  await context.addInitScript(()=>{window.AudioContext=function(){const audio=new OfflineAudioContext(1,14400,48000);audio.resume=()=>Promise.resolve();window.qaSound=audio;return audio;};});
+  const page=await context.newPage(),errors=[],levels=new Map();page.on('pageerror',error=>errors.push(error.message));
+  try{
+    for(const volume of [0,25,50,100]){
+      await request('/settings',{sounds:false,soundStyle:'retro',soundVolume:volume},admin,'PATCH');await page.goto(base);
+      await page.getByRole('button',{name:'Ustawienia',exact:true}).click();assert.equal(await page.getByLabel('Dźwięk interfejsu',{exact:true}).count(),0,'Playback settings no longer contain theme sounds');await page.getByRole('button',{name:'Motyw',exact:true}).click();
+      assert.equal(await page.getByLabel('Dźwięk interfejsu',{exact:true}).inputValue(),'retro');const slider=page.getByRole('slider',{name:'Głośność dźwięków menu',exact:true});assert.equal(await slider.inputValue(),String(volume));
+      await page.getByRole('button',{name:'Odsłuchaj',exact:true}).click();const energy=await page.evaluate(async()=>{if(!window.qaSound)return 0;const buffer=await window.qaSound.startRendering(),samples=buffer.getChannelData(0);return Math.sqrt(samples.reduce((total,sample)=>total+sample*sample,0)/samples.length);});levels.set(volume,energy);
+    }
+    assert.equal(levels.get(0),0,'0% generates no audio');assert.ok(levels.get(50)>.001,'The preview renders audible samples');assert.ok(Math.abs(levels.get(25)/levels.get(50)-.5)<.001);assert.ok(Math.abs(levels.get(100)/levels.get(50)-2)<.001,'100% doubles the old 50% level in the actual audio graph');
+    await page.getByRole('button',{name:'+ Głośniej',exact:true}).click();assert.equal((await request('/settings')).value.soundVolume,100,'The upper bound is preserved');
+    const slider=page.getByRole('slider',{name:'Głośność dźwięków menu',exact:true});await slider.focus();await slider.press('ArrowDown');assert.equal(await slider.evaluate(el=>el===document.activeElement),false,'Idle sound slider does not trap the remote');
+    await slider.focus();await slider.press('Enter');const saved=page.waitForResponse(response=>response.url().endsWith('/api/settings')&&response.request().method()==='PATCH'&&response.request().postDataJSON().soundVolume===95);await slider.press('ArrowLeft');await saved;await slider.press('Enter');assert.equal(await slider.getAttribute('data-tv-editing'),null);assert.equal((await request('/settings')).value.soundVolume,95);assert.equal((await request('/settings',null,other)).value.soundVolume,otherVolume,'Volume belongs to one account');assert.equal((await request('/settings')).value.volumeBoost,previous.volumeBoost,'Film volume is independent');
+    if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'theme-menu-sound-volume.png')});assert.deepEqual(errors,[]);
+  }finally{await browser.close();await request('/settings',previous,admin,'PUT');}
+});
+
+test('Poster scale requires OK before remote adjustment and releases navigation on OK, Back or blur',{skip:!process.env.CHROMIUM_PATH},async()=>{
+  const {chromium}=await import('playwright'),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
+  try{for(const tv of [true,false]){
+    const context=await browser.newContext({viewport:{width:1280,height:720},...(tv?{userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.3.4'}:{})});
+    const settings={theme:'violet',style:'compact',posterScale:100,sounds:false,soundStyle:'soft',autoplay:true,autoFallback:true,preferredHosts:[],defaultSources:[],defaultDestination:'device'},patches=[];
+    await context.route('**/api/**',route=>{
+      const path=new URL(route.request().url()).pathname;let result=[];
+      if(path==='/api/auth/me')result={id:'scale-qa',username:'qa',role:'admin',initial:false};
+      else if(path==='/api/settings'){if(route.request().method()==='PATCH'){const patch=route.request().postDataJSON();patches.push(patch);Object.assign(settings,patch);}result=settings;}
+      else if(path==='/api/catalog')result={groups:[],errors:[]};
+      return route.fulfill({json:result});
+    });
+    const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
+    await page.goto(base);assert.match(await page.title(),/Cinema Hub/i);await page.getByRole('button',{name:'Ustawienia',exact:true}).click();await page.getByRole('button',{name:'Motyw',exact:true}).click();
+    const scale=page.getByRole('slider',{name:'Rozmiar okładek',exact:true}),hint=page.locator('#poster-scale-hint');
+    await scale.focus();assert.equal(await scale.inputValue(),'100');
+    if(tv){
+      for(const key of ['ArrowDown','ArrowUp','ArrowLeft','ArrowRight']){await scale.focus();await page.keyboard.press(key);assert.equal(await scale.inputValue(),'100','Focus navigation must not adjust the scale');if(['ArrowUp','ArrowDown'].includes(key))assert.equal(await scale.evaluate(el=>el===document.activeElement),false,key+' leaves the idle slider');}
+      await scale.focus();await scale.press('Home');assert.equal(await scale.inputValue(),'100');assert.equal(patches.length,0,'Merely navigating never saves a scale');assert.match(await hint.innerText(),/OK: zmień/);
+      await scale.press('Enter');assert.equal(await scale.getAttribute('data-tv-editing'),'true');const updated=page.waitForResponse(response=>response.url().endsWith('/api/settings')&&response.request().method()==='PATCH'&&response.request().postDataJSON().posterScale===110);await scale.press('ArrowRight');await updated;assert.equal(await scale.inputValue(),'110');
+      assert.equal(await scale.evaluate(el=>el===document.activeElement),true);assert.match(await hint.innerText(),/Regulacja:/);
+      if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'poster-scale-editing.png')});
+      await scale.press('Enter');assert.equal(await scale.getAttribute('data-tv-editing'),null);await scale.press('ArrowDown');assert.equal(await scale.evaluate(el=>el===document.activeElement),false);assert.equal(await scale.inputValue(),'110');
+      // Android calls the bridge first, then forwards only unhandled keys into WebView.
+      const nativeKey=async key=>{const handled=await page.evaluate(key=>window.CinemaHubTV.key(key),key);if(!handled)await page.keyboard.press(key);return handled;};
+      await scale.focus();assert.equal(await nativeKey('Enter'),true);assert.equal(await nativeKey('ArrowLeft'),false);assert.equal(await scale.inputValue(),'100');
+      assert.equal(await page.evaluate(()=>window.CinemaHubTV.back()),true);assert.equal(await scale.getAttribute('data-tv-editing'),null);assert.equal(await nativeKey('ArrowDown'),true);assert.equal(await scale.evaluate(el=>el===document.activeElement),false);assert.equal(await scale.inputValue(),'100');
+      await scale.focus();await nativeKey('Enter');await scale.press('Escape');assert.equal(await scale.getAttribute('data-tv-editing'),null);assert.equal(await page.getByRole('heading',{name:'Motyw',exact:true}).isVisible(),true);
+      await scale.press('Enter');await page.getByRole('button',{name:'100%',exact:true}).focus();assert.equal(await scale.getAttribute('data-tv-editing'),null);await scale.focus();await nativeKey('Enter');await nativeKey('Enter');assert.equal(await scale.getAttribute('data-tv-editing'),null);
+      await scale.press('Enter');await page.keyboard.down('Enter');await page.keyboard.down('Enter');await page.keyboard.up('Enter');assert.equal(await scale.getAttribute('data-tv-editing'),null,'Holding OK does not toggle repeatedly');
+      await scale.press('ArrowDown');if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'poster-scale-navigation.png')});
+    }else{
+      assert.equal(await hint.isVisible(),false);await scale.press('ArrowRight');assert.equal(await scale.inputValue(),'110','Desktop range keys retain their ordinary behavior');
+    }
+    const box=await scale.boundingBox();await scale.click({position:{x:box.width*.75,y:box.height/2}});assert.ok(Number(await scale.inputValue())>110,'Pointer adjustment still works');
+    await page.waitForFunction(()=>document.querySelector('[aria-label="Rozmiar okładek"]').value===document.querySelector('.poster-scale').textContent.match(/(\d+)%/)[1]);
+    await page.getByRole('button',{name:'100%',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="Rozmiar okładek"]').value==='100');
+    assert.equal(await page.locator('vite-error-overlay').count(),0);assert.deepEqual(errors,[]);await context.close();
+  }}finally{await browser.close();}
+});
+
+test('Window and TV users can interrupt Auto, retry and see genuine block countdowns',{skip:!process.env.CHROMIUM_PATH},async()=>{
+  const {chromium}=await import('playwright'),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
+  const settings={theme:'violet',style:'cinematic',sounds:false,soundStyle:'soft',autoplay:true,autoFallback:true,posterScale:100,combineSources:false,videoEffect:'none',imageProfile:'natural',volumeBoost:100,preferredVersion:'Lektor',preferredHosts:[],defaultSources:[],defaultDestination:'device'},owner={id:'qa-owner',username:'qa',role:'admin',initial:false};
+  try{for(const tv of [false,true]){Object.assign(settings,{videoEffect:'none',imageProfile:'natural',volumeBoost:100,style:'cinematic',posterScale:100});
+    const context=await browser.newContext({viewport:{width:1280,height:720},...(tv?{userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.0'}:{})});
+    await context.addInitScript(()=>{window.nativeCalls=[];const listeners=new Set();window.nativeEmit=value=>{for(const fn of listeners)fn({data:JSON.stringify(value)});};window.CinemaNative={addEventListener:(_name,fn)=>listeners.add(fn),removeEventListener:(_name,fn)=>listeners.delete(fn),postMessage:message=>{const value=JSON.parse(message);window.nativeCalls.push(value);if(value.type==='play')setTimeout(()=>{window.nativeEmit({type:'progress',playbackId:value.playbackId,duration:130,position:value.position||12,playing:true});},50);}};});
+    const links=[{id:'auto',host:'Auto hosting',version:'Lektor',quality:'720p'},{id:'manual',host:'Ręczny hosting',version:'Lektor',quality:'720p'}],episodes=[{url:origin+'/e/first',season:1,number:1,title:'Pierwszy'},{url:origin+'/e/second',season:1,number:2,title:'Drugi'}];
+    const series={id:'qa-series',sourceId:'qa-source',sourceName:'Filman QA',title:'Serial QA',url:origin+'/s/1/serial',kind:'series',episodes,genres:[]};
+    const runs=new Map(),requests=[],cancelled=[],favoriteUpdates=[];let manualMode='ready',sequence=0,holdFirstProgress=true,releaseProgress;const progressGate=new Promise(resolve=>releaseProgress=resolve);
+    await context.route('**/api/**',async route=>{
+      const url=new URL(route.request().url()),path=url.pathname;let result={};
+      if(path==='/api/auth/me')result=owner;
+      else if(path==='/api/settings'){if(route.request().method()==='PATCH')Object.assign(settings,route.request().postDataJSON());result={...settings,sounds:false,autoplay:true};}
+      else if(path==='/api/sources')result=[{id:'qa-source',name:'Filman QA',type:'filman',enabled:true}];
+      else if(path==='/api/destinations'||path==='/api/library/continue')result=[];
+      else if(path==='/api/catalog')result={groups:[{sourceId:'qa-source',sourceName:'Filman QA',items:[series,...Array.from({length:35},(_,index)=>({...series,id:'qa-extra-'+index,title:'Serial testowy '+(index+2)}))],filters:[],pages:[]}],errors:[]};
+      else if(path==='/api/items/qa-series')result=series;
+      else if(path.endsWith('/links'))result=links;
+      else if(path.endsWith('/ready'))result=[];
+      else if(path.endsWith('/progress')){if(route.request().method()==='GET'&&holdFirstProgress){holdFirstProgress=false;await progressGate;}result=[];}
+      else if(path.endsWith('/check')){
+        const body=route.request().postDataJSON();requests.push(body);
+        if(body.linkId&&manualMode!=='ready')return route.fulfill({status:429,json:{error:'Portal ograniczył liczbę zapytań.'+(manualMode==='unknown'?' Termin odblokowania nie jest znany.':''),...(manualMode==='known'?{retryAfter:Date.now()+2200}:{})}});
+        const id='qa-check-'+(++sequence);runs.set(id,{id,itemId:series.id,episodeURL:body.episode,status:body.linkId?'done':'checking',checked:body.linkId?1:0,total:2,ready:body.linkId?[{...links[1],playbackId:'qa-media-'+sequence,kind:'mp4'}]:[],phase:'Oczekuję na hosting…'});result={id,selectedLinkId:body.linkId};
+      }else if(path.endsWith('/favorite')){favoriteUpdates.push(route.request().postDataJSON().active);result={ok:true};}
+      else if(path.endsWith('/cancel')){cancelled.push(path.split('/').at(-2));result={ok:true};}
+      else if(path.startsWith('/api/checks/'))result=runs.get(path.split('/').at(-1));
+      return route.fulfill({json:result});
+    });
+    const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(base);assert.match(await page.title(),/Cinema Hub/i);
+    const openEffectsPanel=async()=>{const before=await page.evaluate(()=>window.nativeCalls.filter(call=>call.type==='panel'&&call.open&&call.mode==='effects').length);await page.getByRole('button',{name:'Menu odtwarzacza',exact:true}).click();await page.waitForFunction(count=>window.nativeCalls.filter(call=>call.type==='panel'&&call.open&&call.mode==='effects').length>count,before);assert.equal(await page.locator('.player-options').count(),0,'Android uses one native side panel instead of opening the legacy centered menu');};
+    const setNativePresentation=async(values)=>page.evaluate(options=>{const playbackId=window.nativeCalls.filter(call=>call.type==='play').at(-1)?.playbackId;if(!playbackId)throw Error('No active native playback');if(options.profile)window.nativeEmit({type:'profile',playbackId,value:options.profile});if(options.effect)window.nativeEmit({type:'effect',playbackId,value:options.effect});if(options.boost)window.nativeEmit({type:'boost',playbackId,value:options.boost});},values);
+    const closeEffectsPanel=async()=>page.evaluate(()=>{const playbackId=window.nativeCalls.filter(call=>call.type==='play').at(-1)?.playbackId;window.CinemaNative.postMessage(JSON.stringify({type:'panel',playbackId,open:false,mode:'effects'}));});
+    const firstCover=page.getByRole('button',{name:'Zobacz Serial QA',exact:true});await firstCover.waitFor();assert.equal(await page.locator('main').getByRole('button',{name:/ulubionych/i}).count(),0,'Catalog and featured title do not expose a favorite action');assert.equal(await page.locator('.movie-card .poster-wrap').first().getByRole('button').count(),1,'The cover opens details without a second focus target');
+    if(tv){await firstCover.focus();await page.keyboard.press('ArrowRight');assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Zobacz Serial testowy 2','Right selects the next cover directly');}
+    if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,tv?'catalog-tv-without-hearts.png':'catalog-window-without-hearts.png')});
+    await firstCover.click({timeout:10000}).catch(async error=>{throw Error(error.message+' '+JSON.stringify(errors)+' '+await page.locator('body').innerText());});
+    await page.locator('.modal').getByRole('button',{name:'Do ulubionych',exact:true}).click();await page.locator('.modal').getByRole('button',{name:'W ulubionych',exact:true}).waitFor();assert.deepEqual(favoriteUpdates,[true]);
+    await page.locator('.modal').getByRole('button',{name:'W ulubionych',exact:true}).click();await page.locator('.modal').getByRole('button',{name:'Do ulubionych',exact:true}).waitFor();assert.deepEqual(favoriteUpdates,[true,false],'Series can still be added and removed from details');
+    await page.getByRole('button',{name:'Odtwórz automatycznie',exact:true}).click();await page.getByRole('button',{name:'Zatrzymaj automat',exact:true}).waitFor();
+    if(tv){await page.keyboard.press('ArrowUp');const episodes=page.getByRole('group',{name:'Lista odcinków sezonu 1',exact:true});assert.equal(await episodes.evaluate(el=>el===document.activeElement),true);await page.keyboard.press('Enter');await page.keyboard.press('ArrowUp');assert.equal(await page.getByRole('button',{name:'Do źródeł',exact:true}).evaluate(el=>el===document.activeElement),true,'Up from the first episode exits the list');await page.keyboard.press('ArrowUp');assert.equal(await page.locator('[data-tv-detail-primary]').evaluate(el=>el===document.activeElement),true,'During Auto the user can navigate up to favorites');assert.equal(await page.locator('.modal').evaluate(el=>el.scrollTop),0,'Up restores the top of the poster and description');await page.keyboard.press('Enter');await page.locator('.modal').getByRole('button',{name:'W ulubionych',exact:true}).waitFor();assert.equal(cancelled.length,0,'Adding a favorite does not stop Auto');}
+    const manual=page.locator('.manual-host').filter({hasText:'Ręczny hosting'}).getByRole('button');assert.equal(await manual.isEnabled(),true,'Manual selection remains enabled during Auto');
+    await manual.scrollIntoViewIfNeeded();if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,tv?'playback-tv-manual.png':'playback-window-manual.png')});
+    await manual.click();await page.locator('.player-overlay h2').filter({hasText:'Serial QA'}).waitFor();
+    await page.getByRole('button',{name:'Menu odtwarzacza',exact:true}).click();releaseProgress();
+    await page.waitForFunction(()=>window.nativeCalls.some(c=>c.type==='play'));await page.waitForFunction(()=>window.nativeCalls.some(call=>call.type==='panel'&&call.open&&call.mode==='effects'));const initialPlay=await page.evaluate(()=>window.nativeCalls.find(c=>c.type==='play'));assert.equal(initialPlay.imageProfile,'natural');await setNativePresentation({profile:'projector',boost:'200'});await page.waitForFunction(()=>window.nativeCalls.some(c=>c.type==='settings'&&c.imageProfile==='projector'&&c.volumeBoost===200));await closeEffectsPanel();assert.ok(cancelled.includes('qa-check-1'));assert.equal(requests.at(-1).linkId,'manual');
+    await page.getByRole('button',{name:'Zmień źródło',exact:true}).click();const drawer=page.locator('.modal.source-drawer');await drawer.waitFor();const drawerLayout=await drawer.evaluate(el=>{const r=el.getBoundingClientRect(),backdrop=getComputedStyle(el,'::backdrop');return {width:r.width,left:r.left,right:r.right,backdrop:backdrop.backgroundColor};});assert.ok(drawerLayout.width<1280*.75&&drawerLayout.left>0&&drawerLayout.right>=1279,'The source picker is a side drawer that leaves most of the picture visible');assert.ok(drawerLayout.backdrop==='rgba(0, 0, 0, 0)'||drawerLayout.backdrop==='transparent','The source drawer does not dim the video');if(tv){await page.waitForFunction(()=>window.nativeCalls.some(c=>c.type==='panel'&&c.open===true&&c.mode==='sources'));}manualMode='known';await drawer.locator('.source-picker .manual-host').filter({hasText:'Auto hosting'}).getByRole('button').click();await drawer.locator('.source-cooldown').filter({hasText:'Ponowna próba za'}).waitFor();assert.equal(await drawer.locator('.source-picker .manual-host').filter({hasText:'Ręczny hosting'}).getByRole('button',{name:'Wybierz',exact:true}).isEnabled(),true,'A previously checked source stays selectable during the portal cooldown');await drawer.getByRole('button',{name:'Zamknij',exact:true}).click();await drawer.waitFor({state:'detached'});
+    const plays=await page.evaluate(()=>window.nativeCalls.filter(c=>c.type==='play').length);await openEffectsPanel();await setNativePresentation({effect:'crt-warm',profile:'projector',boost:'200'});
+    await page.waitForFunction(()=>window.nativeCalls.some(c=>c.type==='settings'&&c.videoEffect==='crt-warm'&&c.volumeBoost===200&&c.imageProfile==='projector'));assert.equal(await page.evaluate(()=>window.nativeCalls.filter(c=>c.type==='play').length),plays,'Image and volume changes must not restart the film');
+    if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,tv?'playback-tv-effects.png':'playback-window-effects.png')});await closeEffectsPanel();
+    const rows=await page.locator('.player-actions button').evaluateAll(buttons=>buttons.map(button=>Math.round(button.getBoundingClientRect().top)));assert.equal(new Set(rows).size,1,'Playback controls fit a single row');
+
+    await page.evaluate(()=>window.nativeEmit({type:'details',playbackId:window.nativeCalls.find(call=>call.type==='play').playbackId}));await page.getByRole('button',{name:'Wróć do odtwarzacza',exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[data-tv-detail-primary]')===document.activeElement);await page.getByRole('button',{name:'Wznów oglądanie',exact:true}).click();await page.locator('.player-overlay[open]').waitFor();assert.equal(await page.evaluate(()=>window.nativeCalls.filter(call=>call.type==='play').length),plays,'Details and favorites do not restart the current player');
+    await page.evaluate(()=>{const playbackId=window.nativeCalls.find(call=>call.type==='play').playbackId;window.nativeEmit({type:'progress',playbackId,duration:130,position:67,playing:false});window.nativeEmit({type:'closed',playbackId,ended:false});});await page.getByRole('button',{name:'Wznów oglądanie',exact:true}).waitFor();await page.getByRole('button',{name:'Wznów oglądanie',exact:true}).click();await page.waitForFunction(()=>window.nativeCalls.filter(call=>call.type==='play').length===2);assert.equal(await page.evaluate(()=>window.nativeCalls.filter(call=>call.type==='play').at(-1).position),67,'Back to the episode/source menu offers resuming the same episode at its exact last position');
+
+    // Going forward leaves a pending player. Its manual picker must work too.
+    await page.getByRole('button',{name:'Następny',exact:true}).click();await page.locator('.player-overlay').getByRole('button',{name:'Zatrzymaj automat',exact:true}).waitFor();
+    const cancelledBeforeDetails=cancelled.length;await page.locator('.player-overlay').getByRole('button',{name:'Zatrzymaj automat',exact:true}).focus();await page.keyboard.press('ArrowUp');await page.getByRole('button',{name:'Wróć do odtwarzacza',exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[data-tv-detail-primary]')===document.activeElement);assert.equal(cancelled.length,cancelledBeforeDetails,'Returning to details keeps the pending autoplay check');await page.getByRole('button',{name:'Wznów oglądanie',exact:true}).click();await page.locator('.player-overlay').getByRole('button',{name:'Zatrzymaj automat',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Zmień źródło',exact:true}).click();const pendingDrawer=page.locator('.modal.source-drawer');await pendingDrawer.waitFor();
+    manualMode='known';await pendingDrawer.locator('.source-picker .manual-host').filter({hasText:'Ręczny hosting'}).getByRole('button').click();await pendingDrawer.locator('.source-cooldown').filter({hasText:'Ponowna próba za'}).waitFor();assert.equal(await pendingDrawer.isVisible(),true,'The manual source panel stays open while the portal is checking');assert.equal(await page.getByRole('button',{name:'Ponów odtwarzanie',exact:true}).isEnabled(),false);
+    if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,tv?'playback-tv-countdown.png':'playback-window-countdown.png')});
+    await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(button=>button.textContent==='Ponów odtwarzanie'&&!button.disabled));assert.equal(await page.getByRole('button',{name:'Ponów odtwarzanie',exact:true}).isEnabled(),true);assert.equal(requests.length,5,'The countdown never consumes portal requests on its own');await pendingDrawer.getByRole('button',{name:'Zamknij',exact:true}).click();
+    await page.getByRole('button',{name:'Zmień źródło',exact:true}).click();manualMode='unknown';const unknownDrawer=page.locator('.modal.source-drawer');await unknownDrawer.waitFor();await unknownDrawer.locator('.source-picker .manual-host').filter({hasText:'Ręczny hosting'}).getByRole('button').click();await unknownDrawer.locator('.source-cooldown').filter({hasText:'Portal nie podał terminu odblokowania'}).waitFor();
+    await unknownDrawer.getByRole('button',{name:'Zamknij',exact:true}).click();
+    // Stop/restart creates a fresh resolution without episode navigation.
+    manualMode='ready';await page.getByRole('button',{name:'Ponów odtwarzanie',exact:true}).click();await page.locator('.player-overlay').getByRole('button',{name:'Zatrzymaj automat',exact:true}).waitFor();assert.equal(requests.at(-1).fresh,true);await page.locator('.player-overlay').getByRole('button',{name:'Zatrzymaj automat',exact:true}).click();await page.locator('.video-loading').filter({hasText:'Automat zatrzymany'}).waitFor();
+    if(tv){
+      await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();await page.locator('.modal').getByRole('button',{name:'Zamknij',exact:true}).click();
+      const before=await page.locator('.movie-grid').first().evaluate(grid=>getComputedStyle(grid).gridTemplateColumns.split(' ').length);
+      await page.getByRole('button',{name:'Ustawienia',exact:true}).click();await page.getByRole('button',{name:'Motyw',exact:true}).click();await page.getByLabel('Styl interfejsu',{exact:true}).selectOption('wall');const scale=page.getByRole('slider',{name:'Rozmiar okładek',exact:true});await scale.focus();const scaleSaved=page.waitForResponse(response=>response.url().endsWith('/api/settings')&&response.request().method()==='PATCH'&&response.request().postDataJSON().posterScale===60);await scale.press('Enter');await scale.press('Home');await scaleSaved;await page.getByRole('button',{name:'Biblioteka',exact:true}).click();await page.getByRole('button',{name:'Zobacz Serial QA',exact:true}).waitFor();
+      const after=await page.locator('.movie-grid').first().evaluate(grid=>getComputedStyle(grid).gridTemplateColumns.split(' ').length);assert.ok(after>before);assert.equal(settings.posterScale,60);assert.equal(settings.style,'wall');
+      await page.locator('.movie-card .card-title').first().focus();const frame=await page.locator('.poster-wrap').first().evaluate(element=>{const s=getComputedStyle(element,'::after');return [s.borderTopWidth,s.borderRightWidth,s.borderBottomWidth,s.borderLeftWidth,s.pointerEvents];});assert.deepEqual(frame,['3px','3px','3px','3px','none']);
+      if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'catalog-tv-dense-focus.png')});
+    }
+    assert.equal(await page.locator('vite-error-overlay').count(),0);assert.deepEqual(errors,[]);await context.close();
+  }}finally{await browser.close();}
+});
+
 test('Registration, backup codes and Authenticator pairing are available in the rendered account UI',{skip:!process.env.CHROMIUM_PATH},async()=>{
   const {chromium}=await import('playwright');const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
   try{
@@ -534,11 +721,44 @@ test('Fullscreen browser menu dialogs retain the active movie',{skip:!hasTools||
   const settings=(await request('/settings')).value;await request('/settings',{defaultSources:[source.id]},admin,'PATCH');const {chromium}=await import('playwright');const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required']});
   try{
     const context=await browser.newContext({viewport:{width:1280,height:720}});const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(base);await page.getByRole('button',{name:'Zobacz Film lokalny',exact:true}).click({timeout:30000});await page.locator('.playable-row').getByRole('button',{name:'Odtwórz',exact:true}).click({timeout:20000});await page.waitForFunction(()=>{const video=document.querySelector('.player-overlay video');return video&&!video.paused&&video.currentTime>0;});
-    await page.getByRole('button',{name:'Pełny ekran',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});await page.locator('.player-overlay video').click();await page.getByRole('button',{name:'Wznów',exact:true}).waitFor();const stream=await page.locator('.player-overlay video').evaluate(video=>video.currentSrc);
+    await page.getByRole('button',{name:'Pełny ekran',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});
+    await page.getByRole('button',{name:'Menu efektów podczas odtwarzania',exact:true}).click();const liveBefore=await page.locator('.player-overlay video').evaluate(video=>({time:video.currentTime,src:video.currentSrc}));await page.getByRole('menuitemradio',{name:'Projektor — jaśniejszy',exact:true}).click();await page.getByRole('menuitemradio',{name:'150%',exact:true}).click();await page.waitForFunction(time=>{const video=document.querySelector('.player-overlay video');return !video.paused&&video.currentTime>time+.15;},liveBefore.time);assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),liveBefore.src,'The effects menu does not pause or replace the stream');if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'playback-live-effects-menu.png')});await page.getByRole('button',{name:'Zamknij menu',exact:true}).click();
+    await page.locator('.player-overlay video').click();await page.getByRole('button',{name:'Wznów',exact:true}).waitFor();const stream=await page.locator('.player-overlay video').evaluate(video=>video.currentSrc);
     const timeline=page.getByRole('slider',{name:'Pozycja odtwarzania',exact:true});await timeline.fill('80');assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentTime),80);assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.paused),true);await timeline.press('ArrowLeft');assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentTime),70);
-    await page.getByRole('button',{name:'Zmień źródło',exact:true}).click();const dialog=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zmień źródło odtwarzania',exact:true})});await dialog.waitFor();assert.equal(await dialog.evaluate(el=>document.fullscreenElement?.contains(el)),true);await dialog.getByRole('button',{name:'Zamknij',exact:true}).click();assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),stream);
+    const activeStream=await page.locator('.player-overlay video').evaluate(video=>video.currentSrc);await page.getByRole('button',{name:'Menu odtwarzacza',exact:true}).click();await page.getByRole('menuitemradio',{name:'Projektor — jaśniejszy',exact:true}).click();await page.getByRole('menuitemradio',{name:'CRT klasyczny',exact:true}).click();await page.getByRole('menuitemradio',{name:'150%',exact:true}).click();assert.match(await page.locator('.player-overlay video').evaluate(video=>getComputedStyle(video).filter),/brightness\(1.16\)/);assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),activeStream);if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'playback-browser-projector-crt.png')});await page.getByRole('button',{name:'Zamknij menu',exact:true}).click();
+    await page.getByRole('button',{name:'Zmień źródło',exact:true}).click();const dialog=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zmień źródło',exact:true})});await dialog.waitFor();assert.equal(await dialog.evaluate(el=>document.fullscreenElement?.contains(el)),true);await dialog.getByRole('button',{name:'Zamknij',exact:true}).click();assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),stream);
     await page.getByRole('button',{name:'Zapisz',exact:true}).click();const save=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zapisz film',exact:true})});await save.waitFor();assert.equal(await save.evaluate(el=>document.fullscreenElement?.contains(el)),true);await save.getByRole('button',{name:'Zamknij',exact:true}).click();await page.getByRole('button',{name:'Wznów',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.paused),false);assert.deepEqual(errors,[]);
   }finally{await browser.close();await request('/settings',{defaultSources:settings.defaultSources},admin,'PATCH');}
+});
+
+test('Catalog page reads are coalesced per account and source, without caching failures',async()=>{
+  const {SourceBrowser}=await import('../server/browser.mjs'),browser=new SourceBrowser();let reads=0,finish;
+  const source={id:'coalesce-source',type:'filman'},page={waitForFunction:async()=>{},content:async()=>'<p>cached catalog</p>',evaluate:async()=>false};
+  browser.page=async(_source,_url,work)=>{reads++;await new Promise(resolve=>finish=resolve);return work(page);};
+  const a=browser.html(source,origin+'/catalog'),b=browser.html(source,origin+'/catalog');assert.equal(reads,1);finish();assert.deepEqual(await Promise.all([a,b]),['<p>cached catalog</p>','<p>cached catalog</p>']);assert.equal(await browser.html(source,origin+'/catalog'),'<p>cached catalog</p>');assert.equal(reads,1);
+  browser.page=async()=>{reads++;throw Error('offline');};await assert.rejects(browser.html(source,origin+'/failed'));await assert.rejects(browser.html(source,origin+'/failed'));assert.equal(reads,3);assert.equal(browser.htmlPending.size,0);
+});
+
+test('Optional Vider matching preserves ownership, episode identity and the enabled switch',async()=>{
+  const settings=(await request('/settings')).value,owner=(await request('/auth/me')).value,original=sourceBrowser.resolveVider,originalHTML=sourceBrowser.html;
+  const filman=(await request('/sources',{name:'Merge Filman',type:'filman',url:origin+'/',credentials:{}})).value;
+  const vider=(await request('/sources',{name:'Merge Vider',type:'vider',url:'https://vider.info/',credentials:{}})).value;
+  const film=store.saveItem(filman.id,{url:origin+'/m/match',title:'Film Match',kind:'movie',year:2024,sources:[{id:'primary',host:'Filman',version:'Lektor',quality:'720p'}]});
+  store.saveItem(vider.id,{url:'https://vider.info/vid/+match',title:'Film Match 2024 Lektor',kind:'movie',year:2024});
+  const episodes=[{url:origin+'/e/match1',title:'Pierwszy',season:1,number:1},{url:origin+'/e/match2',title:'Drugi',season:1,number:2}],series=store.saveItem(filman.id,{url:origin+'/s/match',title:'Serial Match',kind:'series',episodes});
+  store.saveItem(vider.id,{url:'https://vider.info/#cinema-series=serial-match',title:'Serial Match',kind:'series',episodes:[{url:'https://vider.info/vid/+episode1',season:1,number:1,title:'Serial Match S01E01'}]});
+  try{
+    await request('/settings',{combineSources:false},admin,'PATCH');assert.equal((await request('/items/'+film.id+'/links')).value.length,1);
+    await request('/settings',{combineSources:true,posterScale:70,style:'wall',soundStyle:'glass',imageProfile:'projector'},admin,'PATCH');assert.equal((await request('/settings')).value.posterScale,70);assert.equal((await request('/settings',null,other)).value.combineSources,false);
+    const links=(await request('/items/'+film.id+'/links')).value;assert.equal(links.length,2);const match=links.find(link=>link.host==='Vider');let resolved;
+    sourceBrowser.resolveVider=async(source,url,link)=>{resolved={source:source.id,url,id:link.id};return {kind:'mp4',url:origin+'/film.mp4',host:'Vider',quality:'180p'};};
+    const check=(await request('/items/'+film.id+'/check',{linkId:match.id,link:match})).value;for(let i=0;i<100&&media.checkFor(check.id,owner.id).status==='checking';i++)await new Promise(resolve=>setTimeout(resolve,10));
+    assert.deepEqual(resolved,{source:vider.id,url:'https://vider.info/vid/+match',id:'vider-video'});assert.equal((await request('/items/'+film.id+'/ready')).value[0].id,match.id);assert.equal((await request('/items/'+film.id+'/links',null,other)).status,404);
+    sourceBrowser.html=async source=>source.id===filman.id?movie:originalHTML.call(sourceBrowser,source,source.url);
+    assert.equal((await request('/items/'+series.id+'/links?episode='+encodeURIComponent(episodes[0].url))).value.some(link=>link.host==='Vider'),true);
+    assert.equal((await request('/items/'+series.id+'/links?episode='+encodeURIComponent(episodes[1].url))).value.some(link=>link.host==='Vider'),false,'A different episode must never be offered as the current episode');
+    await request('/sources/'+vider.id,{name:vider.name,type:vider.type,url:vider.url,credentials:{},enabled:false},admin,'PUT');assert.equal((await request('/items/'+film.id+'/links')).value.some(link=>link.host==='Vider'),false);assert.equal((await request('/items/'+film.id+'/ready')).value.length,0);
+  }finally{sourceBrowser.resolveVider=original;sourceBrowser.html=originalHTML;await request('/settings',settings,admin,'PUT');}
 });
 
 test('Deleting a source removes only its owner configuration, profile and linked data',async()=>{
@@ -550,7 +770,7 @@ test('Deleting a source removes only its owner configuration, profile and linked
   const data=store.saveItem(id,{url:origin+'/film.mp4',title:'Disposable film',kind:'movie'});
   store.db.prepare('INSERT INTO favorites VALUES(?,?,?,?)').run(owner.id,data.id,'favorite',store.now());
   store.db.prepare('INSERT INTO progress VALUES(?,?,?,?,?)').run(owner.id,data.id,'',JSON.stringify({position:10}),store.now());
-  const downloadId=store.uid();store.db.prepare('INSERT INTO downloads VALUES(?,?,?,?,?)').run(downloadId,owner.id,JSON.stringify({sourceId:id}),'queued',store.now());
+  const downloadId=store.uid();store.db.prepare('INSERT INTO downloads VALUES(?,?,?,?,?)').run(downloadId,owner.id,JSON.stringify({sourceId:id}),'downloading',store.now());
   const playbackId=media.rememberPlayback(owner.id,{url:origin+'/film.mp4',kind:'mp4'},{sourceId:id,itemId:data.id});
   const controller=new AbortController();media.playbacks.get(playbackId).controllers=new Set([controller]);
   const checkId=store.uid(),check={sourceId:id,userId:owner.id,ready:[{playbackId}],cancelled:false};media.checks.set(checkId,check);
