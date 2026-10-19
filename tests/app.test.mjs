@@ -563,23 +563,23 @@ test('TV client navigation and native player preserve progress without a second 
 
 test('Theme tab controls menu sound volume independently and renders the selected audio gain',{skip:!process.env.CHROMIUM_PATH},async()=>{
   const previous=(await request('/settings')).value,otherVolume=(await request('/settings',null,other)).value.soundVolume;
-  for(const invalid of [-1,101,22.5,'70'])assert.equal((await request('/settings',{soundVolume:invalid},admin,'PATCH')).status,400);
+  for(const invalid of [-1,201,22.5,'70'])assert.equal((await request('/settings',{soundVolume:invalid},admin,'PATCH')).status,400);
   const {chromium}=await import('playwright'),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
   const context=await browser.newContext({viewport:{width:1280,height:720},userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.3.6'});
   const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);
   await context.addInitScript(()=>{window.AudioContext=function(){const audio=new OfflineAudioContext(1,14400,48000);audio.resume=()=>Promise.resolve();window.qaSound=audio;return audio;};});
   const page=await context.newPage(),errors=[],levels=new Map();page.on('pageerror',error=>errors.push(error.message));
   try{
-    for(const volume of [0,25,50,100]){
+    for(const volume of [0,25,50,100,150,200]){
       await request('/settings',{sounds:false,soundStyle:'retro',soundVolume:volume},admin,'PATCH');await page.goto(base);
       await page.getByRole('button',{name:'Ustawienia',exact:true}).click();assert.equal(await page.getByLabel('Dźwięk interfejsu',{exact:true}).count(),0,'Playback settings no longer contain theme sounds');await page.getByRole('button',{name:'Motyw',exact:true}).click();
       assert.equal(await page.getByLabel('Dźwięk interfejsu',{exact:true}).inputValue(),'retro');const slider=page.getByRole('slider',{name:'Głośność dźwięków menu',exact:true});assert.equal(await slider.inputValue(),String(volume));
       await page.getByRole('button',{name:'Odsłuchaj',exact:true}).click();const energy=await page.evaluate(async()=>{if(!window.qaSound)return 0;const buffer=await window.qaSound.startRendering(),samples=buffer.getChannelData(0);return Math.sqrt(samples.reduce((total,sample)=>total+sample*sample,0)/samples.length);});levels.set(volume,energy);
     }
-    assert.equal(levels.get(0),0,'0% generates no audio');assert.ok(levels.get(50)>.001,'The preview renders audible samples');assert.ok(Math.abs(levels.get(25)/levels.get(50)-.5)<.001);assert.ok(Math.abs(levels.get(100)/levels.get(50)-2)<.001,'100% doubles the old 50% level in the actual audio graph');
-    await page.getByRole('button',{name:'+ Głośniej',exact:true}).click();assert.equal((await request('/settings')).value.soundVolume,100,'The upper bound is preserved');
+    assert.equal(levels.get(0),0,'0% generates no audio');assert.ok(levels.get(50)>.001,'The preview renders audible samples');assert.ok(Math.abs(levels.get(25)/levels.get(50)-.5)<.001);assert.ok(Math.abs(levels.get(100)/levels.get(50)-2)<.001,'100% doubles the old 50% level in the actual audio graph');assert.ok(Math.abs(levels.get(150)/levels.get(100)-1.5)<.001);assert.ok(Math.abs(levels.get(200)/levels.get(100)-2)<.001,'200% doubles 100% in the actual audio graph');
+    await page.getByRole('button',{name:'+ Głośniej',exact:true}).click();assert.equal((await request('/settings')).value.soundVolume,200,'The upper bound is preserved');
     const slider=page.getByRole('slider',{name:'Głośność dźwięków menu',exact:true});await slider.focus();await slider.press('ArrowDown');assert.equal(await slider.evaluate(el=>el===document.activeElement),false,'Idle sound slider does not trap the remote');
-    await slider.focus();await slider.press('Enter');const saved=page.waitForResponse(response=>response.url().endsWith('/api/settings')&&response.request().method()==='PATCH'&&response.request().postDataJSON().soundVolume===95);await slider.press('ArrowLeft');await saved;await slider.press('Enter');assert.equal(await slider.getAttribute('data-tv-editing'),null);assert.equal((await request('/settings')).value.soundVolume,95);assert.equal((await request('/settings',null,other)).value.soundVolume,otherVolume,'Volume belongs to one account');assert.equal((await request('/settings')).value.volumeBoost,previous.volumeBoost,'Film volume is independent');
+    await slider.focus();await slider.press('Enter');const saved=page.waitForResponse(response=>response.url().endsWith('/api/settings')&&response.request().method()==='PATCH'&&response.request().postDataJSON().soundVolume===195);await slider.press('ArrowLeft');await saved;await slider.press('Enter');assert.equal(await slider.getAttribute('data-tv-editing'),null);assert.equal((await request('/settings')).value.soundVolume,195);assert.equal((await request('/settings',null,other)).value.soundVolume,otherVolume,'Volume belongs to one account');assert.equal((await request('/settings')).value.volumeBoost,previous.volumeBoost,'Film volume is independent');
     if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'theme-menu-sound-volume.png')});assert.deepEqual(errors,[]);
   }finally{await browser.close();await request('/settings',previous,admin,'PUT');}
 });

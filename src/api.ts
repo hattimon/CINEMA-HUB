@@ -14,7 +14,7 @@ export const clock=(seconds:number)=>{if(!Number.isFinite(seconds))return '0:00'
 export const size=(bytes:number)=>bytes>=1024**3?(bytes/1024**3).toFixed(1)+' GB':bytes>=1024**2?(bytes/1024**2).toFixed(1)+' MB':Math.round(bytes/1024)+' KB';
 let audio:AudioContext|undefined,noise:AudioBuffer|undefined,lastTone=0;
 export function tone(style='soft',volume=50,preview=false) {
-  const level=Math.max(0,Math.min(100,Number.isFinite(volume)?volume:50));if(level===0)return;
+  const level=Math.max(0,Math.min(200,Number.isFinite(volume)?volume:50));if(level===0)return;
   try{if(!preview&&performance.now()-lastTone<35)return;lastTone=performance.now();audio ||= new AudioContext();if(audio.state==='suspended')void audio.resume();const context=audio,at=context.currentTime,master=context.createGain();master.gain.value=level/50;master.connect(context.destination);
     // Release the short-lived mix after the longest theme finishes.
     setTimeout(()=>master.disconnect(),500);

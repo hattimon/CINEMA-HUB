@@ -6,7 +6,7 @@
 - **Biblioteka:** regulowany rozmiar okładek i dodatkowe zwarte układy mieszczą więcej tytułów na ekranie. Ulubione i lista „Chcę obejrzeć” są dostępne po otwarciu szczegółów filmu lub serialu.
 - **Android TV 1.3.6:** menu korekcji obrazu, efektów CRT i wzmocnienia dźwięku otwiera się jako boczny panel bez przyciemniania obrazu. Zmiany są dostępne pilotem podczas seansu.
 - **Odtwarzanie automatyczne:** można przejść do ręcznego wyboru źródła także podczas sprawdzania kolejnych hostingów. Globalny limit portalu pokazuje licznik, jeśli portal poda termin; limit pojedynczego hostingu przełącza sprawdzanie na następny.
-- **Motyw i dźwięki:** ustawienia wyglądu, układów i dźwięków interfejsu są zebrane w zakładce „Motyw”; można wybrać styl dźwięku i ustawić jego głośność.
+- **Motyw i dźwięki:** ustawienia wyglądu, układów i dźwięków interfejsu są zebrane w zakładce „Motyw”; można wybrać styl dźwięku i ustawić głośność menu do 200%.
 - **Biblioteka ładuje się sprawniej:** równoległe odczyty tej samej strony katalogu współdzielą pracę.
 
 ## Serwer 1.3.6

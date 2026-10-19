@@ -62,9 +62,9 @@ function InterfaceSounds({settings,save,onSettings}:{settings:Preferences;save:(
     <label>Dźwięk<select aria-label="Dźwięk interfejsu" value={settings.soundStyle} onChange={event=>{const style=event.target.value as Preferences['soundStyle'];save({soundStyle:style});if(settings.sounds)preview(volume,style);}}>
       <option value="soft">Miękki</option><option value="arcade">Arcade</option><option value="minimal">Minimalny</option><option value="retro">Retro</option><option value="cinematic">Filmowy</option><option value="wind">Wiatr</option><option value="glass">Szkło</option><option value="futuristic">Futurystyczny</option>
     </select></label>
-    <PreferenceSlider id="menu-sound-volume" label="Głośność dźwięków menu" value={volume} min={0} max={100} step={5} onPreview={soundVolume=>onSettings(old=>({...old,soundVolume}))} onCommit={changeVolume}/>
-    <div className="form-actions"><button className="button secondary" onClick={()=>changeVolume(Math.max(0,volume-5))}>− Ciszej</button><button className="button secondary" onClick={()=>preview()}><Volume2 size={16}/>Odsłuchaj</button><button className="button secondary" onClick={()=>changeVolume(Math.min(100,volume+5))}>+ Głośniej</button></div>
-    <p className="form-note">0% wycisza dźwięki menu, 50% odpowiada dotychczasowej głośności. Ustawienie dotyczy Twojego konta i nie zmienia głośności filmu.</p>
+    <PreferenceSlider id="menu-sound-volume" label="Głośność dźwięków menu" value={volume} min={0} max={200} step={5} onPreview={soundVolume=>onSettings(old=>({...old,soundVolume}))} onCommit={changeVolume}/>
+    <div className="form-actions"><button className="button secondary" onClick={()=>changeVolume(Math.max(0,volume-5))}>− Ciszej</button><button className="button secondary" onClick={()=>preview()}><Volume2 size={16}/>Odsłuchaj</button><button className="button secondary" onClick={()=>changeVolume(Math.min(200,volume+5))}>+ Głośniej</button></div>
+    <p className="form-note">0% wycisza dźwięki menu, 50% odpowiada dotychczasowej głośności, a 200% daje dwukrotnie większy poziom niż 100%. Ustawienie dotyczy Twojego konta i nie zmienia głośności filmu.</p>
   </div>;
 }
 
