@@ -1,6 +1,13 @@
 package pl.cinemahub.tv;
 
 import android.Manifest;
+import android.media.audiofx.LoudnessEnhancer;
+import androidx.media3.common.Effect;
+import androidx.media3.effect.Brightness;
+import androidx.media3.effect.Contrast;
+import androidx.media3.effect.RgbFilter;
+import androidx.media3.effect.RgbAdjustment;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -98,6 +105,10 @@ public class MainActivity extends Activity {
     private DefaultTimeBar nativeTimeBar;
     private TextView nativeTimeText;
     private boolean scrubbing;
+    private String nativeControlHint="",videoEffect="none",imageProfile="natural",appliedPicture="";
+    private int volumeBoost=100,boostSession;
+    private LoudnessEnhancer loudness;
+    private CrtOverlay crtOverlay;
     private boolean playerFullscreen,webPanel,series;
     private boolean autoAdvance,canNext,canPrevious,preferManualHost;
     private WebView web,loginWeb;
@@ -310,19 +321,21 @@ public class MainActivity extends Activity {
         player.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),true);
         playerLayer=new FrameLayout(this);playerLayer.setBackgroundColor(Color.BLACK);
         playerView=new PlayerView(this);playerView.setFocusable(true);playerView.setFocusableInTouchMode(true);playerView.setPlayer(player);playerView.setUseController(false);playerView.setOnClickListener(v->togglePause());playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);playerLayer.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
+        crtOverlay=new CrtOverlay(this);playerLayer.addView(crtOverlay,new FrameLayout.LayoutParams(-1,-1));crtOverlay.setEffect(videoEffect);
         createNativeControls(data.optString("title"),data.optString("subtitle"));
         root.addView(playerLayer,new FrameLayout.LayoutParams(-1,-1));menuButton.setVisibility(View.GONE);cursor.setVisibility(View.GONE);playerView.requestFocus();immersive();
         refreshNativeControls(true);
         final ExoPlayer sessionPlayer=player;
+        player.addAnalyticsListener(new AnalyticsListener(){@Override public void onAudioSessionIdChanged(AnalyticsListener.EventTime time,int id){if(player==sessionPlayer)applyVolumeBoost();}});
         player.addListener(new Player.Listener(){
             @Override public void onPlaybackStateChanged(int state){if(player!=sessionPlayer)return;if(state==Player.STATE_READY){if(rejectShortVideo())return;sendProgress(false);}if(state==Player.STATE_ENDED)closePlayer(true,true);}
             @Override public void onTimelineChanged(androidx.media3.common.Timeline timeline,int reason){if(player==sessionPlayer)rejectShortVideo();}
             @Override public void onIsPlayingChanged(boolean playing){if(player==sessionPlayer)sendProgress(false);}
             @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(player!=sessionPlayer)return;refreshNativeControls(!ready);sendProgress(false);}
-            @Override public void onPlayerError(PlaybackException error){if(player!=sessionPlayer)return;JSONObject result=event("error");try{result.put("message","Źródło nie uruchomiło się na Androidzie ("+error.getErrorCodeName()+"). Sprawdź połączenie lub ręcznie wybierz inny hosting.");}catch(Exception ignored){}post(result);closePlayer(false,false);}
+            @Override public void onPlayerError(PlaybackException error){if(player!=sessionPlayer)return;if(error.getErrorCodeName().contains("VIDEO_FRAME_PROCESSOR")&&(!imageProfile.equals("natural")||videoEffect.equals("crt-warm")||videoEffect.equals("crt-green"))){imageProfile="natural";videoEffect=videoEffect.equals("none")?"none":"crt";appliedPicture="reset";applyPictureProfile();if(crtOverlay!=null)crtOverlay.setEffect(videoEffect);postValue("profile",imageProfile);postValue("effect",videoEffect);Toast.makeText(MainActivity.this,"Urządzenie nie obsługuje korekcji obrazu. Przywrócono naturalny obraz.",Toast.LENGTH_LONG).show();sessionPlayer.prepare();return;}JSONObject result=event("error");try{result.put("message","Źródło nie uruchomiło się na Androidzie ("+error.getErrorCodeName()+"). Sprawdź połączenie lub ręcznie wybierz inny hosting.");}catch(Exception ignored){}post(result);closePlayer(false,false);}
         });
         MediaItem.Builder item=new MediaItem.Builder().setUri(server+"api/playback/"+playbackId+"/media");if(data.optString("kind").equals("hls"))item.setMimeType(MimeTypes.APPLICATION_M3U8);
-        player.setMediaItem(item.build());player.seekTo(Math.max(0,(long)(data.optDouble("position",0)*1000)));player.prepare();player.play();handler.postDelayed(progressTick,5000);handler.post(timelineTick);
+        applyPictureProfile();player.setMediaItem(item.build());player.seekTo(Math.max(0,(long)(data.optDouble("position",0)*1000)));player.prepare();player.play();handler.postDelayed(progressTick,5000);handler.post(timelineTick);
     }
 
     private void updatePlayerSettings(JSONObject data) {
@@ -331,19 +344,30 @@ public class MainActivity extends Activity {
         canPrevious=data.optBoolean("canPrevious",canPrevious);
         preferManualHost=data.optBoolean("preferManualHost",preferManualHost);
         playerFullscreen=data.optBoolean("fullscreen",playerFullscreen);
-        if(nativeAutoplay!=null)nativeAutoplay.setText("Autoplay: "+(autoAdvance?"WŁ.":"WYŁ."));
-        if(nativeHost!=null)nativeHost.setText("Ten hosting: "+(preferManualHost?"TAK":"NIE"));
+        String requested=data.optString("videoEffect",videoEffect);if(java.util.Arrays.asList("none","crt","crt-warm","crt-green").contains(requested))videoEffect=requested;
+        int boost=data.optInt("volumeBoost",volumeBoost);if(boost==100||boost==150||boost==200)volumeBoost=boost;
+        if(crtOverlay!=null)crtOverlay.setEffect(videoEffect);
+        String profile=data.optString("imageProfile",imageProfile);if(java.util.Arrays.asList("natural","projector","cinema","soft").contains(profile))imageProfile=profile;applyPictureProfile();applyVolumeBoost();
+        if(nativeAutoplay!=null)nativeAutoplay.setSelected(autoAdvance);
+        if(nativeHost!=null)nativeHost.setSelected(preferManualHost);
         refreshNativeControls(false);
     }
 
     private Button action(String label,LinearLayout row,Runnable onClick) {
-        Button button=new Button(this);button.setText(label);button.setTextColor(Color.WHITE);button.setTextSize(12);button.setAllCaps(false);
+        Button button=new Button(this);button.setText(label);button.setTextColor(Color.WHITE);button.setTextSize(16);button.setAllCaps(false);button.setMinWidth(0);button.setMinimumWidth(0);button.setPadding(dp(4),0,dp(4),0);button.setSingleLine(true);
         StateListDrawable background=new StateListDrawable();
         GradientDrawable focused=new GradientDrawable();focused.setColor(Color.rgb(57,50,90));focused.setCornerRadius(dp(7));focused.setStroke(dp(3),Color.rgb(186,162,255));
         GradientDrawable normal=new GradientDrawable();normal.setColor(Color.rgb(42,47,68));normal.setCornerRadius(dp(7));normal.setStroke(dp(1),Color.rgb(82,90,113));
-        background.addState(new int[]{android.R.attr.state_focused},focused);background.addState(new int[]{android.R.attr.state_pressed},focused);background.addState(new int[]{},normal);button.setBackground(background);
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(44));p.setMargins(dp(3),0,dp(3),0);row.addView(button,p);
+        background.addState(new int[]{android.R.attr.state_focused},focused);background.addState(new int[]{android.R.attr.state_pressed},focused);GradientDrawable selected=new GradientDrawable();selected.setColor(0xFF51436F);selected.setCornerRadius(dp(7));selected.setStroke(dp(1),0xFFBAA2FF);background.addState(new int[]{android.R.attr.state_selected},selected);background.addState(new int[]{},normal);button.setBackground(background);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(44),dp(38));p.setMargins(dp(2),0,dp(2),0);row.addView(button,p);
         button.setOnClickListener(v->{onClick.run();if(player!=null)refreshNativeControls(false);});return button;
+    }
+
+    private Button iconAction(String icon,String description,LinearLayout row,Runnable onClick) {
+        Button button=action(icon,row,onClick);button.setContentDescription(description);
+        if(Build.VERSION.SDK_INT>=26)button.setTooltipText(description);
+        button.setOnFocusChangeListener((view,focused)->{nativeControlHint=focused?String.valueOf(button.getContentDescription()):"";updateTimeline();});
+        return button;
     }
 
     private void createNativeControls(String title,String subtitle) {
@@ -360,33 +384,31 @@ public class MainActivity extends Activity {
         nativeTimeBar=new DefaultTimeBar(this,null);nativeTimeBar.setId(View.generateViewId());nativeTimeBar.setContentDescription("Pozycja odtwarzania. Lewo i prawo: 10 sekund.");nativeTimeBar.setKeyTimeIncrement(10000);nativeTimeBar.setFocusable(true);nativeTimeBar.setFocusableInTouchMode(true);
         nativeTimeBar.setPlayedColor(0xFFBAA2FF);nativeTimeBar.setBufferedColor(0xFF68718A);nativeTimeBar.setUnplayedColor(0xFF333B50);nativeTimeBar.setScrubberColor(Color.WHITE);
         GradientDrawable timelineFocus=new GradientDrawable();timelineFocus.setColor(0x2239325A);timelineFocus.setCornerRadius(dp(6));timelineFocus.setStroke(dp(3),0xFFBAA2FF);StateListDrawable timelineBackground=new StateListDrawable();timelineBackground.addState(new int[]{android.R.attr.state_focused},timelineFocus);timelineBackground.addState(new int[]{},new GradientDrawable());nativeTimeBar.setBackground(timelineBackground);
-        LinearLayout.LayoutParams timelineParams=new LinearLayout.LayoutParams(-1,dp(40));timelineParams.setMargins(dp(12),0,dp(12),dp(4));nativeMenu.addView(nativeTimeBar,timelineParams);
+        LinearLayout.LayoutParams timelineParams=new LinearLayout.LayoutParams(-1,dp(30));timelineParams.setMargins(dp(12),0,dp(12),dp(2));nativeMenu.addView(nativeTimeBar,timelineParams);
         nativeTimeBar.addListener(new TimeBar.OnScrubListener(){
             @Override public void onScrubStart(TimeBar bar,long position){scrubbing=true;showTimelineTime(position);}
             @Override public void onScrubMove(TimeBar bar,long position){showTimelineTime(position);}
             @Override public void onScrubStop(TimeBar bar,long position,boolean cancelled){scrubbing=false;if(!cancelled)seekToPosition(position);updateTimeline();}
         });
-        HorizontalScrollView transportScroll=new HorizontalScrollView(this);transportScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout transport=new LinearLayout(this);transport.setOrientation(LinearLayout.HORIZONTAL);transport.setGravity(Gravity.CENTER_VERTICAL);transportScroll.addView(transport);nativeMenu.addView(transportScroll);
-        action("◀ 10 sekund",transport,()->seekBy(-10000));
-        nativePause=action("Pauza",transport,this::togglePause);
+        HorizontalScrollView scroller=new HorizontalScrollView(this);scroller.setHorizontalScrollBarEnabled(false);scroller.setFillViewport(true);
+        nativeActions=new LinearLayout(this);nativeActions.setOrientation(LinearLayout.HORIZONTAL);nativeActions.setGravity(Gravity.CENTER);
+        nativeActions.setPadding(dp(8),dp(3),dp(8),dp(3));scroller.addView(nativeActions,new HorizontalScrollView.LayoutParams(-2,-2));
+        if(canPrevious)iconAction("‹","Poprzedni odcinek",nativeActions,()->post(event("previous")));
+        iconAction("−10","Cofnij 10 sekund",nativeActions,()->seekBy(-10000));
+        nativePause=iconAction("Ⅱ","Pauza",nativeActions,this::togglePause);
         nativePause.setId(View.generateViewId());nativePause.setNextFocusUpId(nativeTimeBar.getId());nativeTimeBar.setNextFocusDownId(nativePause.getId());
-        action("10 sekund ▶",transport,()->seekBy(10000));
-        nativeFullscreen=action("Pełny ekran",transport,()->setPlayerFullscreen(!playerFullscreen));
-        action("Zapisz",transport,()->openWebPanel("save"));
-        HorizontalScrollView scroller=new HorizontalScrollView(this);scroller.setHorizontalScrollBarEnabled(false);
-        scroller.setBackgroundColor(0xCC111522);
-        nativeActions=new LinearLayout(this);nativeActions.setOrientation(LinearLayout.HORIZONTAL);nativeActions.setGravity(Gravity.CENTER_VERTICAL);
-        nativeActions.setPadding(dp(10),dp(4),dp(10),dp(4));scroller.addView(nativeActions,new HorizontalScrollView.LayoutParams(-2,-2));
-        if(canPrevious)action("◀ Poprzedni",nativeActions,()->post(event("previous")));
-        if(canNext)action("Następny ▶",nativeActions,()->post(event("next")));
-        nativeSources=action("Zmień źródło",nativeActions,()->openWebPanel("sources"));
+        iconAction("+10","Przewiń 10 sekund",nativeActions,()->seekBy(10000));
+        if(canNext)iconAction("›","Następny odcinek",nativeActions,()->post(event("next")));
+        nativeFullscreen=iconAction("⛶","Pełny ekran / wróć do menu",nativeActions,()->setPlayerFullscreen(!playerFullscreen));
+        nativeSources=iconAction("≡","Zmień źródło",nativeActions,()->openWebPanel("sources"));
+        iconAction("↓","Zapisz film",nativeActions,()->openWebPanel("save"));
         if(series||canPrevious||canNext){
-            nativeAutoplay=action("Autoplay: "+(autoAdvance?"WŁ.":"WYŁ."),nativeActions,()->{autoAdvance=!autoAdvance;postFlag("autoplay",autoAdvance);nativeAutoplay.setText("Autoplay: "+(autoAdvance?"WŁ.":"WYŁ."));});
-            nativeHost=action("Ten hosting: "+(preferManualHost?"TAK":"NIE"),nativeActions,()->{preferManualHost=!preferManualHost;postFlag("hosting",preferManualHost);nativeHost.setText("Ten hosting: "+(preferManualHost?"TAK":"NIE"));});
+            nativeAutoplay=iconAction("↻","Autoplay",nativeActions,()->{autoAdvance=!autoAdvance;postFlag("autoplay",autoAdvance);refreshNativeControls(false);});
+            nativeHost=iconAction("◎","Ten hosting w kolejnych odcinkach",nativeActions,()->{preferManualHost=!preferManualHost;postFlag("hosting",preferManualHost);refreshNativeControls(false);});
         }
-        action("Zamknij film",nativeActions,()->closePlayer(true,false));
-        FrameLayout.LayoutParams params=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);params.bottomMargin=dp(8);
+        iconAction("⋮","Menu obrazu i głośności",nativeActions,this::showPlaybackMenu);
+        iconAction("×","Zamknij film",nativeActions,()->closePlayer(true,false));
+        FrameLayout.LayoutParams params=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);params.bottomMargin=dp(4);
         nativeMenu.addView(scroller);playerLayer.addView(nativeMenu,params);
         nativeMenu.addOnLayoutChangeListener((v,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{if(bottom-top!=oldBottom-oldTop)updatePlayerLayout();});
         nativeTitle.addOnLayoutChangeListener((v,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{if(bottom-top!=oldBottom-oldTop)updatePlayerLayout();});
@@ -394,17 +416,47 @@ public class MainActivity extends Activity {
     }
 
     private String playbackTime(long milliseconds){long seconds=Math.max(0,milliseconds/1000);return seconds>=3600?String.format(Locale.ROOT,"%d:%02d:%02d",seconds/3600,(seconds/60)%60,seconds%60):String.format(Locale.ROOT,"%d:%02d",seconds/60,seconds%60);}
-    private void showTimelineTime(long position){if(nativeTimeText!=null&&player!=null)nativeTimeText.setText(playbackTime(position)+" / "+(player.getDuration()>0?playbackTime(player.getDuration()):"—"));}
+    private void showTimelineTime(long position){if(nativeTimeText!=null&&player!=null)nativeTimeText.setText(playbackTime(position)+" / "+(player.getDuration()>0?playbackTime(player.getDuration()):"—")+(nativeControlHint.isEmpty()?"":"   ·   "+nativeControlHint));}
     private void updateTimeline(){if(player==null||nativeTimeBar==null)return;long duration=player.getDuration();nativeTimeBar.setDuration(Math.max(0,duration));nativeTimeBar.setBufferedPosition(player.getBufferedPosition());nativeTimeBar.setEnabled(duration>0&&player.isCurrentMediaItemSeekable());if(!scrubbing){nativeTimeBar.setPosition(player.getCurrentPosition());showTimelineTime(player.getCurrentPosition());}}
-    private void updatePlayerLayout(){if(playerView==null||nativeMenu==null||nativeTitle==null)return;FrameLayout.LayoutParams layout=new FrameLayout.LayoutParams(-1,-1);if(!playerFullscreen){layout.topMargin=nativeTitle.getMeasuredHeight()>0?nativeTitle.getMeasuredHeight():dp(56);layout.bottomMargin=(nativeMenu.getMeasuredHeight()>0?nativeMenu.getMeasuredHeight():dp(164))+dp(8);}playerView.setLayoutParams(layout);}
+    private void updatePlayerLayout(){if(playerView==null||nativeMenu==null||nativeTitle==null)return;FrameLayout.LayoutParams layout=new FrameLayout.LayoutParams(-1,-1);if(!playerFullscreen){layout.topMargin=nativeTitle.getMeasuredHeight()>0?nativeTitle.getMeasuredHeight():dp(56);layout.bottomMargin=(nativeMenu.getMeasuredHeight()>0?nativeMenu.getMeasuredHeight():dp(164))+dp(8);}playerView.setLayoutParams(layout);if(crtOverlay!=null)crtOverlay.setLayoutParams(new FrameLayout.LayoutParams(layout));}
+
+    private void postValue(String type,String value){JSONObject result=event(type);try{result.put("value",value);}catch(Exception ignored){}post(result);}
+    private void applyVolumeBoost(){
+        if(player==null)return;int session=player.getAudioSessionId();
+        if(loudness!=null&&(volumeBoost==100||boostSession!=session)){loudness.release();loudness=null;boostSession=0;}
+        if(volumeBoost==100||session<=0)return;
+        try{if(loudness==null){loudness=new LoudnessEnhancer(session);boostSession=session;}loudness.setTargetGain((int)Math.round(2000*Math.log10(volumeBoost/100.0)));if(loudness.setEnabled(true)!=0)throw new IllegalStateException("Audio effect unavailable");}
+        catch(RuntimeException error){if(loudness!=null){loudness.release();loudness=null;}boostSession=0;volumeBoost=100;postValue("boost","100");Toast.makeText(this,"To urządzenie nie udostępnia wzmocnienia dźwięku dla tego wyjścia audio.",Toast.LENGTH_LONG).show();}
+    }
+    private void applyPictureProfile(){
+        if(player==null)return;String key=videoEffect+":"+imageProfile;if(key.equals(appliedPicture))return;
+        java.util.List<Effect> filters=new java.util.ArrayList<>();
+        if(imageProfile.equals("projector")){filters.add(new Brightness(.10f));filters.add(new Contrast(.08f));}
+        else if(imageProfile.equals("cinema")){filters.add(new Brightness(-.025f));filters.add(new Contrast(.16f));}
+        else if(imageProfile.equals("soft")){filters.add(new Brightness(.025f));filters.add(new Contrast(-.08f));}
+        if(videoEffect.equals("crt-warm"))filters.add(new RgbAdjustment.Builder().setRedScale(1.06f).setGreenScale(1f).setBlueScale(.88f).build());
+        else if(videoEffect.equals("crt-green")){filters.add(RgbFilter.createGrayscaleFilter());filters.add(new RgbAdjustment.Builder().setRedScale(.45f).setGreenScale(1.12f).setBlueScale(.5f).build());}
+        if(filters.isEmpty()&&appliedPicture.isEmpty()){appliedPicture=key;return;}
+        try{player.setVideoEffects(filters);appliedPicture=key;}catch(RuntimeException error){Toast.makeText(this,"Ten profil obrazu nie jest dostępny na urządzeniu.",Toast.LENGTH_LONG).show();}
+    }
+    private void showPlaybackMenu(){
+        new AlertDialog.Builder(this).setTitle("Obraz i głośność").setItems(new String[]{"Korekcja obrazu / projektor","Efekt retro / CRT","Wzmocnienie cichych nagrań","Ponów odtwarzanie"},(dialog,which)->{
+            if(which==0){String[] values={"natural","projector","cinema","soft"};int selected=java.util.Arrays.asList(values).indexOf(imageProfile);new AlertDialog.Builder(this).setTitle("Korekcja obrazu").setSingleChoiceItems(new String[]{"Naturalny","Projektor — jaśniejszy","Kino — większy kontrast","Łagodne SD"},selected,(choice,index)->{imageProfile=values[index];applyPictureProfile();postValue("profile",imageProfile);choice.dismiss();}).setNegativeButton("Wróć",null).show();}
+            else if(which==1){String[] values={"none","crt","crt-warm","crt-green"};int selected=java.util.Arrays.asList(values).indexOf(videoEffect);new AlertDialog.Builder(this).setTitle("Efekt retro").setSingleChoiceItems(new String[]{"Bez efektu","CRT klasyczny","CRT ciepły","Zielony kineskop"},selected,(choice,index)->{videoEffect=values[index];if(crtOverlay!=null)crtOverlay.setEffect(videoEffect);applyPictureProfile();postValue("effect",videoEffect);choice.dismiss();}).setNegativeButton("Wróć",null).show();}
+            else if(which==2){int selected=volumeBoost==200?2:volumeBoost==150?1:0;new AlertDialog.Builder(this).setTitle("Wzmocnienie dźwięku").setSingleChoiceItems(new String[]{"Normalnie — 100%","150%","200%"},selected,(choice,index)->{volumeBoost=new int[]{100,150,200}[index];applyVolumeBoost();postValue("boost",String.valueOf(volumeBoost));choice.dismiss();}).setNegativeButton("Wróć",null).show();}
+            else post(event("retry"));
+        }).setNegativeButton("Zamknij",null).show();
+    }
 
     private void postFlag(String type,boolean enabled){JSONObject result=event(type);try{result.put("enabled",enabled);}catch(Exception ignored){}post(result);}
     private void refreshNativeControls(boolean focusPause){
         if(player==null||playerView==null||nativeMenu==null)return;
         boolean visible=PlaybackControls.showMenu(playerFullscreen,player.getPlayWhenReady());
         nativeTitle.setVisibility(visible?View.VISIBLE:View.GONE);nativeMenu.setVisibility(visible?View.VISIBLE:View.GONE);
-        if(nativePause!=null)nativePause.setText(player.getPlayWhenReady()?"Pauza":"Wznów");
-        if(nativeFullscreen!=null)nativeFullscreen.setText(playerFullscreen?"Wróć do menu":"Pełny ekran");
+        if(nativePause!=null){nativePause.setText(player.getPlayWhenReady()?"Ⅱ":"▶");nativePause.setContentDescription(player.getPlayWhenReady()?"Pauza":"Wznów");}
+        if(nativeFullscreen!=null)nativeFullscreen.setContentDescription(playerFullscreen?"Wróć do menu":"Pełny ekran");
+        if(nativeAutoplay!=null){nativeAutoplay.setSelected(autoAdvance);nativeAutoplay.setContentDescription("Autoplay: "+(autoAdvance?"włączone":"wyłączone"));}
+        if(nativeHost!=null){nativeHost.setSelected(preferManualHost);nativeHost.setContentDescription("Ten hosting: "+(preferManualHost?"tak":"nie"));}
         updatePlayerLayout();updateTimeline();
         playerView.hideController();
         if(webPanel)return;
@@ -423,8 +475,8 @@ public class MainActivity extends Activity {
 
     private JSONObject event(String type){JSONObject value=new JSONObject();try{value.put("type",type);value.put("playbackId",playbackId);}catch(Exception ignored){}return value;}
     private void post(JSONObject value){if(playerReply!=null&&WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))try{playerReply.postMessage(value.toString());}catch(Exception ignored){}}
-    private void sendProgress(boolean completed){if(player==null||player.getDuration()<60000)return;JSONObject value=event("progress");try{value.put("position",player.getCurrentPosition()/1000.0);value.put("duration",player.getDuration()/1000.0);value.put("playing",player.isPlaying());value.put("completed",completed);}catch(Exception ignored){}post(value);}
-    private void closePlayer(boolean notify,boolean ended){if(player==null)return;sendProgress(ended);JSONObject closed=event("closed");try{closed.put("ended",ended);}catch(Exception ignored){}handler.removeCallbacks(progressTick);handler.removeCallbacks(timelineTick);handler.removeCallbacks(hideNativeOverlay);ExoPlayer old=player;player=null;if(playerView!=null)playerView.setPlayer(null);old.release();if(playerLayer!=null)root.removeView(playerLayer);playerLayer=null;playerView=null;nativeTitle=null;nativeActions=null;nativeAutoplay=null;nativeHost=null;nativeSources=null;nativePause=null;nativeFullscreen=null;nativeMenu=null;nativeTimeBar=null;nativeTimeText=null;scrubbing=false;webPanel=false;pausedByLifecycle=false;if(notify)post(closed);playerReply=null;playbackId=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);if(web!=null)web.requestFocus();immersive();}
+    private void sendProgress(boolean completed){if(player==null||player.getDuration()<60000)return;JSONObject value=event("progress");try{value.put("position",player.getCurrentPosition()/1000.0);value.put("duration",player.getDuration()/1000.0);value.put("playing",player.isPlaying());value.put("buffering",player.getPlaybackState()==Player.STATE_BUFFERING);value.put("completed",completed);}catch(Exception ignored){}post(value);}
+    private void closePlayer(boolean notify,boolean ended){if(player==null)return;sendProgress(ended);JSONObject closed=event("closed");try{closed.put("ended",ended);}catch(Exception ignored){}handler.removeCallbacks(progressTick);handler.removeCallbacks(timelineTick);handler.removeCallbacks(hideNativeOverlay);if(loudness!=null){loudness.release();loudness=null;}boostSession=0;appliedPicture="";crtOverlay=null;nativeControlHint="";ExoPlayer old=player;player=null;if(playerView!=null)playerView.setPlayer(null);old.release();if(playerLayer!=null)root.removeView(playerLayer);playerLayer=null;playerView=null;nativeTitle=null;nativeActions=null;nativeAutoplay=null;nativeHost=null;nativeSources=null;nativePause=null;nativeFullscreen=null;nativeMenu=null;nativeTimeBar=null;nativeTimeText=null;scrubbing=false;webPanel=false;pausedByLifecycle=false;if(notify)post(closed);playerReply=null;playbackId=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);if(web!=null)web.requestFocus();immersive();}
     private void hideCustom(){if(customView==null)return;root.removeView(customView);customView=null;if(customCallback!=null)customCallback.onCustomViewHidden();customCallback=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);immersive();}
 
     private void editServer(){EditText input=new EditText(this);input.setSingleLine(true);input.setText(server);input.setHint("192.168.11.20:9999 lub https://twoje-kino.pl");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Adres serwera Cinema Hub").setMessage("Wpisz IP z portem lub pełny adres panelu kontenera.").setView(input).setPositiveButton("Połącz",null).setNeutralButton("Pi :9999",(d,w)->{server=ServerAddress.DEFAULT;saveServer();createWeb();}).setNegativeButton("Anuluj",null).create();dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{String address=ServerAddress.normalize(input.getText().toString());server=address;saveServer();dialog.dismiss();createWeb();}catch(IllegalArgumentException error){input.setError(error.getMessage());}}));dialog.show();}

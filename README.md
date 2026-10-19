@@ -2,7 +2,7 @@
 
 <p align="center">
 <img alt="Serwer 1.3.6" src="https://img.shields.io/badge/serwer-1.3.6-a28aff">
-<img alt="Android TV 1.3.3" src="https://img.shields.io/badge/Android_TV-1.3.3-3ddc84">
+<img alt="Android TV 1.3.4" src="https://img.shields.io/badge/Android_TV-1.3.4-3ddc84">
 <img alt="Docker amd64 i arm64" src="https://img.shields.io/badge/Docker-amd64_%7C_arm64-2496ed">
 </p>
 
@@ -41,9 +41,9 @@ Wybierz host Docker na Windows lub Linux, otwórz sklep aplikacji i kliknij **SK
 | --- | --- | --- |
 | Windows | Docker Desktop z kontenerami Linux + Cinema Hub | `http://localhost:8090/` |
 | Raspberry Pi | Docker na systemie 64-bit ARM64 + Cinema Hub | `http://IP_RASPBERRY_PI:9999/` |
-| Android TV / Google TV | [CinemaHub-AndroidTV-v1.3.3.apk](https://github.com/hattimon/CINEMA-HUB/releases/latest) | Wpisujesz IP i port wybranego serwera |
+| Android TV / Google TV | [CinemaHub-AndroidTV-v1.3.4.apk](https://github.com/hattimon/CINEMA-HUB/releases/latest) | Wpisujesz IP i port wybranego serwera |
 
-APK **1.3.3** współpracuje z serwerem **1.3.6**. Pobiera aktualny panel z serwera, więc poprawki katalogu i źródeł nie wymagają każdorazowej instalacji nowego APK. Aplikacja sprawdza nowe wydanie przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
+APK **1.3.4** współpracuje z serwerem **1.3.6**. Pobiera aktualny panel z serwera, więc poprawki katalogu i źródeł nie wymagają każdorazowej instalacji nowego APK. Aplikacja sprawdza nowe wydanie przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
 
 ## Szybki start
 

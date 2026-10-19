@@ -43,3 +43,9 @@ Kliknięcie pola w zdalnym pulpicie nie musi automatycznie otworzyć klawiatury 
 ## Zapis na urządzeniu
 
 Pobieranie jest ręczne. Android zapisuje wybrany materiał przez systemową usługę Pobierania; postęp oglądania pozostaje na koncie serwera.
+
+## Android TV 1.3.4
+
+Nowy pasek odtwarzania ma kompaktowe ikony w jednym wierszu. Zaznaczenie ikony pilotem pokazuje opis przy osi czasu. Ikona **⋮** otwiera menu korekcji obrazu, efektów CRT i wzmocnienia cichych nagrań (100%, 150%, 200%). Profile do projektora i efekty retro są opcjonalne; domyślnie obraz oraz dźwięk pozostają naturalne. W menu jest też ponowienie odtwarzania tego samego odcinka.
+
+Instaluj APK jako aktualizację poprzedniej aplikacji. Podpis wersji 1.3.4 jest zgodny z 1.3.3. Nie odinstalowuj aplikacji, jeśli chcesz zachować adres serwera i lokalną sesję WebView. Pełne zapisywanie nowych opcji w profilu wymaga aktualnego panelu z serwera.
