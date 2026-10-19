@@ -38,7 +38,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
         $release = Join-Path $project '..\releases'
         New-Item -ItemType Directory -Path $release -Force | Out-Null
-        $target = Join-Path $release 'CinemaHub-Magcubic-L018-v1.3.3.apk'
+        $target = Join-Path $release 'CinemaHub-AndroidTV-v1.3.5.apk'
         Copy-Item -LiteralPath $apk -Destination $target -Force
         Get-FileHash -LiteralPath $target -Algorithm SHA256
     }

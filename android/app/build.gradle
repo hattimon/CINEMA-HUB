@@ -3,7 +3,8 @@ android {
     namespace 'pl.cinemahub.tv'
     compileSdk 35
     buildToolsVersion '35.0.0'
-    defaultConfig { applicationId 'pl.cinemahub.tv'; minSdk 23; targetSdk 34; versionCode 8; versionName '1.3.4' }
+    buildFeatures { buildConfig true }
+    defaultConfig { applicationId 'pl.cinemahub.tv'; minSdk 23; targetSdk 34; versionCode 9; versionName '1.3.5' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
 }
