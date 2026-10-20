@@ -1,6 +1,6 @@
 # Instalacja kontenerowa
 
-Serwer 1.3.7 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
+Serwer 1.3.8 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
 
 ## Instalacja przez DCC
 

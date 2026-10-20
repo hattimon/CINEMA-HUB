@@ -66,15 +66,24 @@ export async function catalog(source,{kind='all',filters={},page=1,query='',fold
         const csrf=await p.locator('meta[name="csrf-token"]').getAttribute('content')||'';
         const response=await p.request.post(new URL('szukam',source.url).href,{form:{phrase:query,_csrf:csrf},timeout:25000});
         if(!response.ok())throw new Error('Wyszukiwanie portalu jest niedostępne.');
-        return {...parseCatalog(await response.text(),source.url),loggedIn:initial.loggedIn};
+        return {...parseCatalog(await response.text(),source.url,{includeRecommendations:false}),loggedIn:initial.loggedIn};
       });
       let items=result.items.filter(i=>kind==='all'||i.kind===(kind==='series'?'series':'movie'));
       // Filter the complete search response using real metadata; a catalog page is never used as a search boundary.
       if(hasFilters) {const full=[];for(const item of items){const d=await detail(source,item);if(matchesFilters(d,filters,schema))full.push(d);}items=full;}
       const order=filters.sort?.[0];if(['rate','filmweb'].includes(order))items.sort((a,b)=>(order==='filmweb'?b.imdb:b.rating||0)-(order==='filmweb'?a.imdb:a.rating||0));if(order==='premiere')items.sort((a,b)=>(b.year||0)-(a.year||0));
-      const total=items.length;return {...result,items:items.slice((page-1)*24,page*24),pages:total>page*24?[{page:page+1,label:'Następna'}]:[],filters:schema};
+      const totalPages=Math.max(1,Math.ceil(items.length/24));return {...result,items:items.slice((page-1)*24,page*24),currentPage:page,totalPages,pages:[...new Set([page-1,page+1,totalPages])].filter(p=>p>=1&&p<=totalPages&&p!==page).map(p=>({page:p,label:String(p)})),filters:schema};
     }
-    html=url===initialRoute&&first?first:await sourceBrowser.html(source,url);return {...parseCatalog(html,url),filters:schema};
+    html=url===initialRoute&&first?first:await sourceBrowser.html(source,url);
+    const result=parseCatalog(html,url,{includeRecommendations:kind==='all'});
+    if(kind==='all'&&page===1&&!hasFilters){
+      const seriesRoute=new URL('seriale/',source.url).href;
+      try{
+        const series=parseCatalog(await sourceBrowser.html(source,seriesRoute),seriesRoute);
+        result.recommendations=[...new Map([...result.recommendations,...series.recommendations].map(item=>[item.url,item])).values()];
+      }catch{/* Optional recommendations must not hide an otherwise available catalog. */}
+    }
+    return {...result,filters:schema};
   }
   if(source.type==='plex') {
     const headers=credentialsHeaders(source),allowedOrigins=[networkURL(source.url).origin];

@@ -254,8 +254,8 @@ export class SourceBrowser {
       const requestObserver=request=>{
         if(!selected)return;let url;try{url=new URL(request.url());}catch{return;}
         if(request.resourceType()==='document'&&url.origin!==sourceOrigin)requests.push({host:url.hostname,type:'document'});
-        if(url.origin===sourceOrigin&&['xhr','fetch'].includes(request.resourceType())){portalRequest=true;requests.push({method:request.method(),path:url.pathname});}
-        if(request.resourceType()==='document'&&!isAdvertisement(url.href)&&!/google|captcha|turnstile/i.test(url.hostname)&&url.origin!==sourceOrigin){
+        if(url.origin===sourceOrigin&&['xhr','fetch'].includes(request.resourceType())){if(/^\/link\//.test(url.pathname))portalRequest=true;requests.push({method:request.method(),path:url.pathname});}
+        if(request.resourceType()==='document'&&(url.hostname===link.host||url.hostname==='embed.tmp-url.pro')){
           // A popup navigation can arrive before Chromium has created its frame.
           // It must never escape this event handler and terminate the server.
           let frame;try{frame=request.frame();}catch{}

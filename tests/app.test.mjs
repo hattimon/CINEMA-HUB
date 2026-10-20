@@ -21,6 +21,7 @@ const tile=(url,title)=>`<li><a class="textOverImage2" href="${url}" title="${ti
 const table='<table id="links"><tbody><tr><td><a href="#" data-link-id="101"><img alt="Działający hosting"></a></td><td>Lektor</td><td>720p</td></tr><tr><td><a href="#" data-link-id="102"><img alt="Uszkodzony hosting"></a></td><td>Napisy</td><td>1080p</td></tr></tbody></table>';
 const movie=`<div id="single-info"><h1>Film próbny<span>ONLINE PL</span></h1><a href="/filmy/category:1/">Akcja</a><a href="/filmy/category:12/">Dramat</a><p>2025</p></div><div id="single-poster"><img class="main-poster" src="/poster.jpg">OCENA UŻYTKOWNIKÓW 4.77 /5 IMDB 8.3 /10</div><div id="item-content"><p>Pełny opis filmu</p></div>${table}`;
 let fixture,origin,base,admin,other,source,item,playback,filmBuffer,tsBuffer,portalSource,hostingClicks=0,movieVisits=0,viderCatalogVisits=0,viderPlayerClicks=0,playerPauseClicks=0;
+let backgroundPings=0,trackedHostingClicks=0;
 const cloudFiles=new Map();
 const hasTools=spawnSync('ffmpeg',['-version']).status===0&&spawnSync('ffprobe',['-version']).status===0;
 let slowFilmFirstRequest=true;
@@ -52,6 +53,10 @@ before(async()=>{
     if(url.pathname==='/link/token'){hostingClicks++;return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/player-fixture').toString('base64')}));}
     if(url.pathname==='/link/episode-token')return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/episode-player').toString('base64')}));
     if(url.pathname==='/episode-player')return res.end('<video src="/film.mp4" autoplay muted controls></video>');
+    if(url.pathname==='/background-ping'){backgroundPings++;return res.end('background');}
+    if(url.pathname==='/tracking-frame')return res.end('<p>Background frame</p>');
+    if(url.pathname==='/link/tracked-token'){trackedHostingClicks++;return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/episode-player').toString('base64')}));}
+    if(url.pathname==='/e/background-before-host')return res.end(movie+'<script>let attempts=0;document.querySelector("[data-link-id]").onclick=async event=>{event.preventDefault();if(++attempts===1){fetch("/background-ping");const tracker=document.createElement("iframe");tracker.src='+JSON.stringify(origin.replace('127.0.0.1','localhost')+'/tracking-frame')+';document.body.append(tracker);return;}const data=await(await fetch("/link/tracked-token")).json();const player=document.createElement("iframe");player.src=atob(data.url);document.body.append(player);};</script>');
     if(url.pathname==='/m/covered')return res.end(movie+'<style>#links a{display:block;width:200px;height:30px}</style><div style="position:fixed;inset:10%;z-index:100000"><a target="_blank" href="https://unknown-advert.invalid/pop" style="display:block;width:100%;height:100%"></a></div><script>document.querySelectorAll("[data-link-id]").forEach(link=>link.onclick=async event=>{event.preventDefault();await fetch("/link/episode-token");const frame=document.createElement("iframe");frame.src="/episode-player";document.body.append(frame);});</script>');
     if(url.pathname==='/empty-frame')return res.end('<html><body></body></html>');
     if(url.pathname==='/player-fixture')return res.end('<button class="btn-ok" disabled>Rozumiem, przejdź dalej</button><div id="player" hidden><button aria-label="Play video">Play video</button></div><script>const gate=document.querySelector(".btn-ok");setTimeout(()=>gate.disabled=false,1500);gate.onclick=()=>{gate.remove();document.querySelector("#player").hidden=false;};let count=0;document.querySelector("[aria-label]").onclick=()=>{if(++count<3){window.open("/popup-ad","_blank");return;}const video=document.createElement("video");video.src="/slow-film.mp4";video.muted=true;video.controls=true;document.body.append(video);document.querySelector("[aria-label]").remove();const toggle=document.createElement("button");toggle.className="jw-icon-playback jw-icon-pause";toggle.onclick=()=>{fetch("/player-pause-click");video.pause();};document.body.append(toggle);video.play().catch(()=>{});};</script>');
@@ -108,6 +113,101 @@ test('App login, remember cookie, authentication and independent accounts',async
   const settings=(await request('/settings')).value;assert.equal(settings.autoplay,false);await request('/settings',{...settings,theme:'cyan'},admin,'PUT');assert.equal((await request('/settings',null,other)).value.theme,'violet');assert.equal((await request('/settings',{...settings,defaultSources:[own[0].id]},other,'PUT')).status,404);
   const attacker=await fetch(base+'/api/auth/login',{method:'POST',headers:{Origin:'https://external.invalid','Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:'admin'})});assert.equal(attacker.status,403);
 });
+test('Filman API preserves page order, separates recommendations and counts filtered and search pages',async()=>{
+  const originalHTML=sourceBrowser.html,originalPage=sourceBrowser.page,visits=[];
+  let seriesUnavailable=false;
+  const created=await request('/sources',{name:'Catalog pagination fixture',type:'filman',url:origin+'/',credentials:{}});
+  assert.equal(created.status,201,JSON.stringify(created.value));
+  const sourceId=created.value.id;
+  sourceBrowser.html=async(_source,address)=>{
+    visits.push(address);const url=new URL(address),page=Number(url.searchParams.get('page')||1),filtered=url.pathname.includes('category:'),count=filtered?2:3;
+    if(seriesUnavailable&&url.pathname==='/seriale/')throw new Error('Optional recommendations unavailable');
+    return `${filters}<div id="slider">${tile('/s/recommended','Polecany serial')}</div><div id="item-list">${tile('/s/'+(filtered?'filtered-':'plain-')+page,(filtered?'Filtrowany ':'Strona ')+page)}</div><ul class="pagination"><li class="active"><a href="#!" data-pagenumber="${page}">${page}</a></li><li><a href="?page=${count}">${count}</a></li></ul>`;
+  };
+  sourceBrowser.page=async(_source,_url,read)=>read({content:async()=>'<div id="belt">Zalogowany jako: test</div>',locator:()=>({getAttribute:async()=>''}),request:{post:async()=>({ok:()=>true,text:async()=>`<div id="slider">${tile('/m/recommended','Rekomendacja')}</div><div id="item-list">${Array.from({length:49},(_,index)=>tile('/m/search-'+index,'Wynik '+(index+1))).join('')}</div>`})}});
+  try{
+    const library=(await request('/catalog',{sources:[sourceId],kind:'all',page:1})).value.groups[0];
+    assert.equal(library.recommendations.length,1);assert.ok(library.recommendations[0].id);assert.equal(library.recommendations[0].sourceId,sourceId);
+    for(const page of [1,2,3]){
+      const result=await request('/catalog',{sources:[sourceId],kind:'series',page});
+      assert.equal(result.status,200);assert.deepEqual(result.value.errors,[]);
+      const group=result.value.groups[0];assert.equal(group.currentPage,page);assert.equal(group.totalPages,3);
+      assert.deepEqual(group.items.map(item=>item.title),['Strona '+page]);
+      assert.equal(group.recommendations.length,0);
+
+    }
+    for(const page of [1,2]){
+      const result=await request('/catalog',{sources:[sourceId],kind:'series',filters:{sort:['rate'],category:['1','12']},page});
+      const group=result.value.groups[0];assert.deepEqual(result.value.errors,[]);assert.equal(group.totalPages,2);
+      assert.deepEqual(group.items.map(item=>item.title),['Filtrowany '+page]);assert.deepEqual(group.recommendations,[]);
+      assert.ok(visits.includes(origin+'/seriale/sort:rate/category:1,12/'+(page>1?'?page='+page:'')));
+    }
+    for(const page of [1,2,3]){
+      const result=await request('/catalog',{sources:[sourceId],kind:'movies',query:'Wynik',page});
+      const group=result.value.groups[0];assert.deepEqual(result.value.errors,[]);assert.equal(group.totalPages,3);assert.equal(group.currentPage,page);
+      assert.equal(group.items[0].title,'Wynik '+((page-1)*24+1));assert.equal(group.items.length,page===3?1:24);assert.deepEqual(group.recommendations,[]);
+    }
+    seriesUnavailable=true;
+    const partial=await request('/catalog',{sources:[sourceId],kind:'all',page:1});assert.deepEqual(partial.value.errors,[]);assert.equal(partial.value.groups[0].items.length,1);
+  }finally{sourceBrowser.html=originalHTML;sourceBrowser.page=originalPage;await request('/sources/'+sourceId,{},admin,'DELETE');}
+});
+
+test('Catalog pagination starts at the top, accepts page numbers and preserves filters on desktop, mobile and TV',{skip:!process.env.CHROMIUM_PATH,timeout:120000},async()=>{
+  const {chromium}=await import('playwright');
+  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
+  const settings={theme:'violet',style:'cinematic',sounds:false,soundStyle:'soft',autoplay:false,autoFallback:true,posterScale:100,combineSources:false,videoEffect:'none',imageProfile:'natural',volumeBoost:100,preferredVersion:'Lektor',preferredHosts:[],defaultSources:[],defaultDestination:'device'};
+  const owner={id:'pagination-owner',username:'qa',role:'admin',initial:false},source={id:'pagination-source',name:'Filman QA',type:'filman',url:'https://filman.cc/',enabled:true};
+  const schema=[{key:'sort',label:'Sortowanie',multiple:false,options:[{value:'rate',label:'Ocena'}]},{key:'category',label:'Gatunki',multiple:true,options:[{value:'1',label:'Akcja'}]}];
+  try{for(const viewport of [{name:'desktop',width:1280,height:900},{name:'mobile',width:390,height:844},{name:'tv',width:1280,height:720}]){
+    const context=await browser.newContext({viewport:{width:viewport.width,height:viewport.height},...(viewport.name==='tv'?{userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.0'}:{})});
+    const calls=[],errors=[],warnings=[];
+    const item=(title,kind='series')=>({id:title,sourceId:source.id,sourceName:source.name,title,kind,url:'https://filman.cc/'+(kind==='series'?'s/':'m/')+encodeURIComponent(title),poster:'',description:'Scenariusz testowy paginacji',year:2026,rating:4.5,ratingScale:5});
+    await context.route('**/api/**',async route=>{
+      const path=new URL(route.request().url()).pathname;let result={};
+      if(path==='/api/auth/me')result=owner;
+      else if(path==='/api/settings')result=settings;
+      else if(path==='/api/sources')result=[source];
+      else if(path==='/api/destinations')result=[];
+      else if(path==='/api/library/continue')result=[{...item('Kontynuowany serial'),progress:{episode:'',position:30,duration:300,completed:false}}];
+      else if(path==='/api/catalog'){
+        const body=route.request().postDataJSON();calls.push(body);
+        const count=body.filters.category?.length||body.query?2:3,kind=body.kind==='series'?'series':'movie',prefix=kind==='series'?'Serial':'Film';
+        await new Promise(resolve=>setTimeout(resolve,80));
+        result={groups:[{sourceId:source.id,sourceName:source.name,filters:schema,currentPage:body.page,totalPages:count,pages:Array.from({length:count},(_,index)=>({page:index+1,label:String(index+1)})),items:Array.from({length:30},(_,index)=>item(`${prefix} ${body.filters.category?.length?'Akcja ':''}strona ${body.page} pozycja ${index+1}`,kind)),recommendations:[item('Proponowany '+prefix,kind)]}],errors:[]};
+      }
+      return route.fulfill({json:result});
+    });
+    const page=await context.newPage();page.setDefaultTimeout(10000);page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(['error','warning'].includes(message.type()))warnings.push(message.text());});
+    const first=()=>page.locator('.catalog-section .card-title').first();
+    const expectPage=async(number,prefix='Serial',filtered=false)=>{await page.getByRole('button',{name:`${prefix} ${filtered?'Akcja ':''}strona ${number} pozycja 1`,exact:true}).waitFor();assert.equal(await first().innerText(),`${prefix} ${filtered?'Akcja ':''}strona ${number} pozycja 1`);assert.equal(await page.getByLabel('Numer strony',{exact:true}).inputValue(),String(number));await page.waitForFunction(()=>window.scrollY===0);};
+    await page.goto(base);assert.match(await page.title(),/Cinema Hub/i);assert.equal(new URL(page.url()).origin,base);
+    await first().waitFor();assert.equal(await page.getByRole('heading',{name:'Proponowane filmy i seriale',exact:true}).count(),1);
+    await page.getByRole('navigation',{name:'Biblioteka',exact:true}).locator('button').nth(2).click();await expectPage(1);
+    assert.equal(await page.locator('.recommendations-section').count(),0);assert.equal(await page.getByRole('button',{name:'Poprzednia',exact:true}).isDisabled(),true);
+    await page.getByRole('button',{name:'Następna',exact:true}).click();await expectPage(2);
+    assert.equal(await page.locator('.recommendations-section,.feature,.continue-section').count(),0);
+    if(process.env.QA_SCREENSHOT_DIR&&viewport.name==='desktop')await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'catalog-page-2-desktop.png')});
+    await page.getByRole('button',{name:'Następna',exact:true}).click();await expectPage(3);assert.equal(await page.getByRole('button',{name:'Następna',exact:true}).isDisabled(),true);
+    await page.getByRole('button',{name:'Poprzednia',exact:true}).click();await expectPage(2);
+    const number=page.getByLabel('Numer strony',{exact:true});await number.fill('1');await number.press('Enter');await expectPage(1);assert.equal(await page.locator('.recommendations-section').count(),0);
+    await number.fill('3');await page.getByRole('button',{name:'Przejdź',exact:true}).click();await expectPage(3);
+    for(const invalid of ['0','4','1.5']){const before=calls.length;await number.fill(invalid);await number.press('Enter');assert.equal(await number.evaluate(input=>input.validity.valid),false);assert.equal(calls.length,before);}
+    await number.fill('3');
+    await page.getByRole('button',{name:'Filtry',exact:true}).click();await page.getByLabel('Akcja',{exact:true}).check();await page.getByRole('button',{name:'Zastosuj filtry',exact:true}).click();await expectPage(1,'Serial',true);
+    assert.equal(await page.locator('.recommendations-section').count(),0);assert.equal(await number.getAttribute('max'),'2');
+    await page.getByRole('button',{name:'Następna',exact:true}).click();await expectPage(2,'Serial',true);assert.deepEqual(calls.at(-1).filters.category,['1']);
+    await page.locator('.sort-label select').selectOption('rate');await expectPage(1,'Serial',true);await page.getByRole('button',{name:'Następna',exact:true}).click();await expectPage(2,'Serial',true);assert.deepEqual(calls.at(-1).filters,{category:['1'],sort:['rate']});
+    await page.getByLabel('Szukaj filmów i seriali',{exact:true}).fill('Nowy serial');await page.getByRole('button',{name:'Szukaj',exact:true}).click();await expectPage(1,'Serial',true);await page.getByRole('button',{name:'Następna',exact:true}).click();await expectPage(2,'Serial',true);assert.equal(calls.at(-1).query,'Nowy serial');
+    await page.getByLabel('Szukaj filmów i seriali',{exact:true}).fill('');await page.getByRole('button',{name:'Szukaj',exact:true}).click();await expectPage(1,'Serial',true);
+    await page.getByRole('navigation',{name:'Biblioteka',exact:true}).locator('button').nth(1).click();await expectPage(1,'Film');assert.equal(await page.locator('.recommendations-section').count(),0);
+    await page.getByRole('button',{name:'Następna',exact:true}).click();await expectPage(2,'Film');assert.equal(await page.locator('.recommendations-section,.feature,.continue-section').count(),0);
+    assert.equal(await page.locator('vite-error-overlay').count(),0);assert.deepEqual(errors,[]);assert.deepEqual(warnings,[]);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'The page does not overflow the viewport');
+    if(process.env.QA_SCREENSHOT_DIR){const pagination=page.getByRole('navigation',{name:'Nawigacja stron katalogu',exact:true});await pagination.scrollIntoViewIfNeeded();await pagination.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,`catalog-pagination-${viewport.name}.png`)});}
+    await context.close();
+  }}finally{await browser.close();}
+});
+
 test('Vider is optional, validates its paths and uses the owner-only manual login session',async()=>{
   const invalid={name:'Vider',type:'vider',credentials:{},enabled:true};
   assert.equal((await request('/sources',{...invalid,url:'https://external.invalid/vid/+sample'})).status,400);
@@ -419,6 +519,17 @@ test('Automatic mode tries sources sequentially, stops on success, and preserves
     {id:'dubbing-on-luluvdo',host:'luluvdo.com',version:'Dubbing PL',quality:'720p'},
     {id:'lektor-on-other',host:'other',version:'Lektor PL',quality:'480p'}
   ],'Lektor',['voe.sx','luluvdo.com','savefiles.com']).map(l=>l.id),['lektor-on-other','dubbing-on-luluvdo','dubbing-on-savefiles','subtitles-on-voe']);
+  const priorities=[
+    {id:'other-1080',host:'other',version:'Lektor PL',quality:'1080p'},
+    {id:'voe-480',host:'voe.sx',version:'Lektor PL',quality:'480p'},
+    {id:'lulu-1080',host:'luluvdo.com',version:'Lektor PL',quality:'1080p'},
+    {id:'voe-720',host:'voe.sx',version:'Lektor PL',quality:'720p'},
+    {id:'vid-1080',host:'vidmoly.me',version:'Lektor PL',quality:'1080p'},
+    {id:'voe-subtitles',host:'voe.sx',version:'Napisy PL',quality:'2160p'}
+  ];
+  assert.deepEqual(media.orderHostingLinks(priorities,'Lektor',['','','']).map(link=>link.id),['other-1080','lulu-1080','vid-1080','voe-720','voe-480','voe-subtitles'],'Empty preferences retain language, quality and portal order');
+  assert.deepEqual(media.orderHostingLinks(priorities,'Lektor',[' VOE.SX ','luluvdo.com','vidmoly.me']).map(link=>link.id),['voe-720','voe-480','lulu-1080','vid-1080','other-1080','voe-subtitles'],'Configured hosts precede other hosts within the same language, with quality ordered per host');
+  assert.equal(priorities[0].id,'other-1080','Ranking does not mutate the original links');
   const poll=async id=>{for(let i=0;i<300;i++){const check=media.checkFor(id,owner.id);if(check.status!=='checking')return check;await new Promise(r=>setTimeout(r,10));}throw new Error('Automatyczna weryfikacja nie zakończyła się.');};
   try{
     sourceBrowser.resolve=async(_source,_page,link)=>{attempts.push(link.id);if(link.id==='bad')throw new Error('Hosting nie działa.');return {kind:'mp4',url:origin+'/film.mp4',headers:{},host:link.host,quality:'180p'};};
@@ -489,6 +600,21 @@ test('Manual portal probing uses one hosting and excludes dead or ad content',{s
 test('A covering advertisement does not receive the selected hosting click',{skip:!hasTools||!process.env.CHROMIUM_PATH},async()=>{
   const source={...portalSource},seen=[];const context=await sourceBrowser.context(source);const observe=request=>{if(request.url().includes('unknown-advert.invalid'))seen.push(request.url());};context.on('request',observe);
   try{const result=await sourceBrowser.resolve(source,origin+'/m/covered',{id:'101',host:'Działający hosting',version:'Lektor',quality:'720p'});assert.equal(result.kind,'mp4');assert.deepEqual(seen,[],'The legitimate hosting handler runs without navigating to the advert');}finally{context.off('request',observe);}
+});
+
+test('Auto ignores background AJAX and tracker frames before the actual hosting opens',{skip:!hasTools||!process.env.CHROMIUM_PATH,timeout:25000},async()=>{
+  const owner=(await request('/auth/me')).value;
+  const created=await request('/sources',{name:'Background Auto fixture',type:'filman',url:origin+'/',credentials:{}});assert.equal(created.status,201);
+  const portal=store.getSource(created.value.id,owner.id),episode={url:origin+'/e/background-before-host',season:1,number:1,title:'Background request test'};
+  const series=store.saveItem(portal.id,{url:origin+'/s/background-series',title:'Background series',kind:'series',episodes:[episode]});
+  const link={id:'101',host:'Działający hosting',version:'Lektor',quality:'720p'},pingsBefore=backgroundPings,clicksBefore=trackedHostingClicks;
+  try{
+    const id=media.beginCheck(owner.id,portal,series,episode,[link],{stopOnSuccess:true,fresh:true,attemptTimeoutMs:12000,pauseMs:0});
+    const deadline=Date.now()+15000;let check;
+    while(Date.now()<deadline){check=media.checkFor(id,owner.id);if(check.status!=='checking')break;await new Promise(resolve=>setTimeout(resolve,50));}
+    assert.equal(check.status,'done',check.lastError);assert.equal(check.ready.length,1,check.lastError);assert.ok(backgroundPings>pingsBefore);assert.equal(trackedHostingClicks-clicksBefore,1,'Only the selected hosting token is consumed');
+    assert.equal(check.ready[0].host,link.host);assert.equal(media.playbackFor(check.ready[0].playbackId,owner.id).episode.url,episode.url);
+  }finally{await request('/sources/'+portal.id,undefined,admin,'DELETE');}
 });
 
 test('HLS segments are proxied and manual download produces playable MP4',{skip:!hasTools},async()=>{

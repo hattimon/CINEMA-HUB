@@ -35,14 +35,14 @@ export function versionPriority(value) {
 }
 const resolution=quality=>{const text=String(quality||'').toLowerCase();const match=text.match(/(\d{3,4})\s*p?\b/);return match?Number(match[1]):/4k|uhd/.test(text)?2160:/full\s*hd|fhd/.test(text)?1080:/\bhd\b/.test(text)?720:0;};
 export function orderHostingLinks(links,preferredVersion='Lektor',preferredHosts=[]) {
-  const hosts=['voe.sx','luluvdo.com','vidmoly.me','vidara.to','streamtape.com','doodstream.com'];
-  const selections=(Array.isArray(preferredHosts)?preferredHosts:[preferredHosts]).filter(Boolean).map(h=>String(h).toLowerCase());
-  const rank=host=>{const value=String(host||'').toLowerCase(),index=selections.indexOf(value);if(index>=0)return index;const fallback=hosts.indexOf(value);return selections.length+(fallback<0?hosts.length:fallback);};
-  // A hosting preference may only break ties after language and resolution.
+  const selections=(Array.isArray(preferredHosts)?preferredHosts:[preferredHosts]).map(h=>String(h||'').trim().toLowerCase()).filter(Boolean);
+  const rank=host=>{const index=selections.indexOf(String(host||'').trim().toLowerCase());return index<0?selections.length:index;};
+  // Keep the language preference first; configured hosts precede other hosts
+  // within that language, with the best available quality on each host first.
   const selected=String(preferredVersion||'Lektor').toLowerCase().replace(/[_-]/g,' ');
   const preferredRank=versionPriority(selected);
   const language=link=>{const rank=versionPriority(link.version);return preferredRank<7&&rank===preferredRank?0:rank+1;};
-  return [...links].sort((left,right)=>language(left)-language(right)||resolution(right.quality)-resolution(left.quality)||rank(left.host)-rank(right.host));
+  return [...links].sort((left,right)=>language(left)-language(right)||rank(left.host)-rank(right.host)||resolution(right.quality)-resolution(left.quality));
 }
 export function rememberPlayback(userId,candidate,context={}) {const id=uid();playbacks.set(id,{...candidate,...context,id,userId,expires:now()+60*60*1000,assets:new Map()});return id;}
 export function playbackFor(id,userId) {const result=playbacks.get(id);if(!result||result.userId!==userId||result.expires<now())throw Object.assign(new Error('Sesja źródła wygasła. Sprawdź źródła ponownie.'),{status:410});result.expires=now()+60*60*1000;return result;}

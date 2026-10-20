@@ -15,10 +15,10 @@ function qualityRank(value:string) {
   const v=value.toLowerCase(),match=v.match(/(\d{3,4})\s*p?\b/);
   return match?Number(match[1]):/4k|uhd/.test(v)?2160:/full\s*hd|fhd/.test(v)?1080:/\bhd\b/.test(v)?720:0;
 }
-export function orderPlayable<T extends Pick<Playable,'version'|'quality'> & {host?:string}>(sources:T[],preferredVersion='Lektor',preferredHosts:string[]=['voe.sx']):T[] {
+export function orderPlayable<T extends Pick<Playable,'version'|'quality'> & {host?:string}>(sources:T[],preferredVersion='Lektor',preferredHosts:string[]=[]):T[] {
   const chosen=versionRank(preferredVersion);
   const languages=(v:string)=>{const rank=versionRank(v);return chosen<7&&rank===chosen?0:rank+1;};
-  const hosts=preferredHosts.filter(Boolean).map(h=>h.toLowerCase());
-  const hosting=(v?:string)=>{const rank=hosts.indexOf((v||'').toLowerCase());return rank<0?hosts.length:rank;};
-  return [...sources].sort((a,b)=>languages(a.version)-languages(b.version)||qualityRank(b.quality)-qualityRank(a.quality)||hosting(a.host)-hosting(b.host));
+  const hosts=preferredHosts.map(h=>h.trim().toLowerCase()).filter(Boolean);
+  const hosting=(v?:string)=>{const rank=hosts.indexOf((v||'').trim().toLowerCase());return rank<0?hosts.length:rank;};
+  return [...sources].sort((a,b)=>languages(a.version)-languages(b.version)||hosting(a.host)-hosting(b.host)||qualityRank(b.quality)-qualityRank(a.quality));
 }

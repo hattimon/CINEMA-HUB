@@ -54,7 +54,7 @@ jobs:
           docker run --rm --cpus 2 --memory 1536m --shm-size 256m --pids-limit 512 \
             --entrypoint sh --mount "type=bind,source=$GITHUB_WORKSPACE/tests,target=/app/tests,readonly" \
             -e NODE_ENV=test -e BROWSER_CLOSE_AFTER_WORK=true "$IMAGE:$VERSION-$ARCH" \
-            -c 'Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >/tmp/test-xvfb.log 2>&1 & exec node --test tests/app.test.mjs tests/totp.test.mjs tests/vider.test.mjs'
+            -c 'Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >/tmp/test-xvfb.log 2>&1 & exec node --test tests/*.test.mjs'
       - name: Push tested architecture
         env:
           VERSION: ${{ steps.version.outputs.value }}

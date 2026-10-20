@@ -15,21 +15,36 @@ export function buildFilterURL(base,kind,filters={},page=1,schema=[]) {
   for(const field of schema) {const values=Array.isArray(filters[field.key])?filters[field.key]:[filters[field.key]].filter(Boolean);if(values.length>20)throw new Error('Za wiele wybranych filtrów.'); const allowed=new Set(field.options.map(o=>o.value));if(values.some(v=>!allowed.has(v)))throw new Error('Filtr nie jest oferowany przez portal.'); if(values.length) path+=field.key+':'+values.map(encodeURIComponent).join(',')+'/';}
   const u=new URL(path,base); if(page>1)u.searchParams.set('page',String(page));return u.href;
 }
-export function parseCatalog(html,base) {
-  const $=load(html),items=new Map();
+export function parseCatalog(html,base,{includeRecommendations=true}={}) {
+  const $=load(html),items=new Map(),recommendations=new Map(),baseURL=new URL(base);
+  const validPage=value=>/^[1-9]\d*$/.test(String(value||''))&&Number.isSafeInteger(Number(value))?Number(value):null;
+  const currentPage=validPage(baseURL.searchParams.get('page'))||validPage($('.pagination .active [data-pagenumber]').first().attr('data-pagenumber'))||1;
+  const recommendationSelector='#slider,#owl-slider,.owl-carousel,.carousel,#recommended,.recommended';
+  const showRecommendations=includeRecommendations&&currentPage===1&&!/\/[^/]+:[^/]+/.test(baseURL.pathname);
+  const hasItemList=$('#item-list').length>0;
   $('a[href]').each((_,el)=>{const a=$(el),href=absolute(a.attr('href'),base);let u;try{u=new URL(href);if(u.origin!==new URL(base).origin)return;}catch{return;}
     if(!/^\/(m\/|s\/|film-online-pl\/|serial-online-pl\/)/.test(u.pathname)||a.closest('#comments,.comments,.c-add-comment').length)return;
+    const recommended=a.closest(recommendationSelector).length>0;
+    if(recommended?!showRecommendations:hasItemList&&!a.closest('#item-list').length)return;
     const image=a.find('img').first();if(!image.length)return;
     const title=clean(a.attr('title')||image.attr('alt')||a.find('h1,h2,h3').text());if(!title)return;
-    const parent=a.closest('li').length?a.closest('li'):a.parent();const poster=absolute(image.attr('data-src')||image.attr('data-original')||image.attr('src'),base);
-    const old=items.get(href);if(old&&/\/poster\//.test(old.poster))return;
+    const parent=a.closest('li,.poster').length?a.closest('li,.poster').first():recommended?a:a.parent();const poster=absolute(image.attr('data-src')||image.attr('data-original')||image.attr('src'),base);
+    const collection=recommended?recommendations:items;
+    const old=collection.get(href);if(old&&/\/poster\//.test(old.poster))return;
     const ratingText=clean(a.find('.rate').text()||parent.find('.rate').first().text());const rating=Number(ratingText.match(/\d+[.,]\d+/)?.[0].replace(',','.'))||null;
     const year=Number(clean(parent.find('.year,.date').first().text()).match(/(?:19|20)\d{2}/)?.[0]||clean(parent.text()).match(/\b(?:19|20)\d{2}\b/)?.[0])||null;
     const qv=clean(a.find('.quality-version').text()).split('|');
-    items.set(href,{url:href,title,kind:/^\/(s|serial-online-pl)\//.test(u.pathname)?'series':'movie',poster,description:clean(a.attr('data-text')||a.find('.description').text()),year,rating,ratingScale:5,version:clean(qv[0]),quality:clean(qv[1])});
+    collection.set(href,{url:href,title,kind:/^\/(s|serial-online-pl)\//.test(u.pathname)?'series':'movie',poster,description:clean(a.attr('data-text')||a.find('.description').text()),year,rating,ratingScale:5,version:clean(qv[0]),quality:clean(qv[1])});
   });
-  const pages=[];$('.pagination a[href],a[rel="next"]').each((_,el)=>{try{const href=sameSourceURL(absolute($(el).attr('href'),base),base);if(href.includes('?page='))pages.push({label:clean($(el).text()),page:Number(new URL(href).searchParams.get('page'))});}catch{}});
-  return {items:[...items.values()],pages,filters:parseFilters(html),loggedIn:/Zalogowany jako:/i.test($('#belt').text()||$('#dropdown').text()),challenge:/Just a moment|Verify you are human|Potwierdź.*człowiek/i.test($('title').text())};
+  const pages=new Map();$('.pagination a[href],a[rel="next"],a[rel="prev"],a[rel="last"]').each((_,el)=>{try{
+    const a=$(el);if(a.closest('.disabled').length)return;
+    const raw=a.attr('href'),href=new URL(sameSourceURL(absolute(raw,base),base));
+    if(href.pathname.replace(/\/$/,'')!==baseURL.pathname.replace(/\/$/,''))return;
+    // Filman sometimes puts the wrong data-pagenumber on its penultimate link.
+    const page=validPage(!raw.startsWith('#')&&href.searchParams.get('page'))||validPage(a.attr('data-pagenumber'))||validPage(clean(a.text()));
+    if(page&&!pages.has(page))pages.set(page,{label:clean(a.text()),page});
+  }catch{}});
+  return {items:[...items.values()],recommendations:[...recommendations.values()],pages:[...pages.values()],currentPage,totalPages:Math.max(currentPage,...pages.keys()),filters:parseFilters(html),loggedIn:/Zalogowany jako:/i.test($('#belt').text()||$('#dropdown').text()),challenge:/Just a moment|Verify you are human|Potwierdź.*człowiek/i.test($('title').text())};
 }
 export function parseDetail(html,url) {
   const $=load(html);const info=$('#single-info');const heading=info.find('h1').first().clone();heading.find('.flm-online-badge,span').remove();
