@@ -62,3 +62,19 @@ test('Jumping to an arbitrary page retains all real filter values and their orde
     assert.equal(buildFilterURL('https://filman.cc/','series',{sort:['rate'],category:['1','12']},page,schema),`https://filman.cc/seriale/sort:rate/category:1,12/?page=${page}`);
   }
 });
+
+test('Full search reads text titles, preserves posters and returns both films and series',()=>{
+  const html=slider+'<div id="item-list"><li><a href="/m/stargate"><img src="/cover.jpg"><h4>Gwiezdne wrota / Stargate</h4></a><a href="/m/stargate">Gwiezdne wrota / Stargate</a></li><li><a href="/s/stargate-sg1">Stargate SG-1</a></li></div>'+pagination(2);
+  const result=parseCatalog(html,'https://filman.cc/search?phrase=Stargate&page=2',{includeRecommendations:false,searchResults:true});
+  assert.deepEqual(result.items.map(item=>[item.title,item.kind]),[['Gwiezdne wrota / Stargate','movie'],['Stargate SG-1','series']]);
+  assert.equal(result.items[0].poster,'https://filman.cc/cover.jpg');
+  assert.equal(result.items[1].poster,'');
+  assert.equal(result.currentPage,2);assert.equal(result.totalPages,387);
+  assert.deepEqual(result.recommendations,[]);
+});
+
+test('An expired Filman session is identifiable even when the portal returns HTTP 200',()=>{
+  const result=parseCatalog('<title>Logowanie - Filman.cc</title><form><input type="password"></form>','https://filman.cc/search?phrase=Stargate',{searchResults:true});
+  assert.equal(result.requiresLogin,true);assert.deepEqual(result.items,[]);
+  assert.equal(parseCatalog('<title>Wyniki wyszukiwania</title>','https://filman.cc/search?phrase=Stargate').requiresLogin,false);
+});

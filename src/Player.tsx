@@ -16,6 +16,7 @@ export default function Player({imageProfile,videoEffect,volumeBoost,onPresentat
   const native=!!window.CinemaNative&&!!state.source&&!state.localURL&&!state.pending,canNext=!!onNext,canPrevious=!!onPrevious;
   const command=(action:string,extra:Record<string,unknown>={})=>{if(window.CinemaNative&&state.source)window.CinemaNative.postMessage(JSON.stringify({type:action,playbackId:state.source.playbackId,...extra}));};
   useEffect(()=>{const dialog=box.current;if(detailsOpen)dialog?.close();else if(!dialog?.open)dialog?.showModal();return()=>dialog?.close();},[detailsOpen]);
+  useEffect(()=>{if(detailsOpen)return;document.documentElement.classList.add('player-open');return()=>document.documentElement.classList.remove('player-open');},[detailsOpen]);
   useEffect(()=>{const changed=()=>actions.current.onFullscreenChange(!!document.fullscreenElement&&!!box.current&&document.fullscreenElement.contains(box.current));document.addEventListener('fullscreenchange',changed);return()=>document.removeEventListener('fullscreenchange',changed);},[]);
   useEffect(()=>{if(window.CinemaNative&&!state.localURL)return;const element=video.current;if(!element||volumeBoost===100&&!audioGraph.current)return;
     try{if(!audioGraph.current){const context=new AudioContext(),gain=context.createGain(),compressor=context.createDynamicsCompressor();context.createMediaElementSource(element).connect(gain);gain.connect(compressor);compressor.connect(context.destination);audioGraph.current={context,gain,compressor};}

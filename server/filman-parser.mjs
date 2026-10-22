@@ -15,7 +15,7 @@ export function buildFilterURL(base,kind,filters={},page=1,schema=[]) {
   for(const field of schema) {const values=Array.isArray(filters[field.key])?filters[field.key]:[filters[field.key]].filter(Boolean);if(values.length>20)throw new Error('Za wiele wybranych filtrów.'); const allowed=new Set(field.options.map(o=>o.value));if(values.some(v=>!allowed.has(v)))throw new Error('Filtr nie jest oferowany przez portal.'); if(values.length) path+=field.key+':'+values.map(encodeURIComponent).join(',')+'/';}
   const u=new URL(path,base); if(page>1)u.searchParams.set('page',String(page));return u.href;
 }
-export function parseCatalog(html,base,{includeRecommendations=true}={}) {
+export function parseCatalog(html,base,{includeRecommendations=true,searchResults=false}={}) {
   const $=load(html),items=new Map(),recommendations=new Map(),baseURL=new URL(base);
   const validPage=value=>/^[1-9]\d*$/.test(String(value||''))&&Number.isSafeInteger(Number(value))?Number(value):null;
   const currentPage=validPage(baseURL.searchParams.get('page'))||validPage($('.pagination .active [data-pagenumber]').first().attr('data-pagenumber'))||1;
@@ -26,11 +26,11 @@ export function parseCatalog(html,base,{includeRecommendations=true}={}) {
     if(!/^\/(m\/|s\/|film-online-pl\/|serial-online-pl\/)/.test(u.pathname)||a.closest('#comments,.comments,.c-add-comment').length)return;
     const recommended=a.closest(recommendationSelector).length>0;
     if(recommended?!showRecommendations:hasItemList&&!a.closest('#item-list').length)return;
-    const image=a.find('img').first();if(!image.length)return;
-    const title=clean(a.attr('title')||image.attr('alt')||a.find('h1,h2,h3').text());if(!title)return;
-    const parent=a.closest('li,.poster').length?a.closest('li,.poster').first():recommended?a:a.parent();const poster=absolute(image.attr('data-src')||image.attr('data-original')||image.attr('src'),base);
+    const image=a.find('img').first();if(!image.length&&!searchResults)return;
+    const title=clean(a.attr('title')||image.attr('alt')||a.find('h1,h2,h3,h4,.title,.name').first().text()||(searchResults?a.text():''));if(!title)return;
+    const parent=a.closest('li,.poster').length?a.closest('li,.poster').first():recommended?a:a.parent();const imageURL=image.attr('data-src')||image.attr('data-original')||image.attr('src');const poster=imageURL?absolute(imageURL,base):'';
     const collection=recommended?recommendations:items;
-    const old=collection.get(href);if(old&&/\/poster\//.test(old.poster))return;
+    const old=collection.get(href);if(old&&(/\/poster\//.test(old.poster)||!poster))return;
     const ratingText=clean(a.find('.rate').text()||parent.find('.rate').first().text());const rating=Number(ratingText.match(/\d+[.,]\d+/)?.[0].replace(',','.'))||null;
     const year=Number(clean(parent.find('.year,.date').first().text()).match(/(?:19|20)\d{2}/)?.[0]||clean(parent.text()).match(/\b(?:19|20)\d{2}\b/)?.[0])||null;
     const qv=clean(a.find('.quality-version').text()).split('|');
@@ -44,7 +44,7 @@ export function parseCatalog(html,base,{includeRecommendations=true}={}) {
     const page=validPage(!raw.startsWith('#')&&href.searchParams.get('page'))||validPage(a.attr('data-pagenumber'))||validPage(clean(a.text()));
     if(page&&!pages.has(page))pages.set(page,{label:clean(a.text()),page});
   }catch{}});
-  return {items:[...items.values()],recommendations:[...recommendations.values()],pages:[...pages.values()],currentPage,totalPages:Math.max(currentPage,...pages.keys()),filters:parseFilters(html),loggedIn:/Zalogowany jako:/i.test($('#belt').text()||$('#dropdown').text()),challenge:/Just a moment|Verify you are human|Potwierdź.*człowiek/i.test($('title').text())};
+  return {items:[...items.values()],recommendations:[...recommendations.values()],pages:[...pages.values()],currentPage,totalPages:Math.max(currentPage,...pages.keys()),filters:parseFilters(html),loggedIn:/Zalogowany jako:/i.test($('#belt').text()||$('#dropdown').text()),requiresLogin:/^\s*Logowanie\b/i.test($('title').text()),challenge:/Just a moment|Verify you are human|Potwierdź.*człowiek/i.test($('title').text())};
 }
 export function parseDetail(html,url) {
   const $=load(html);const info=$('#single-info');const heading=info.find('h1').first().clone();heading.find('.flm-online-badge,span').remove();

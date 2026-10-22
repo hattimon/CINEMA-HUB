@@ -78,6 +78,17 @@ test('Vider reads the AJAX catalog separately from account collection menus',()=
   assert.deepEqual(result.folders,[{title:'Podfolder',path:'dir/+child'}]);
 });
 
+test('Vider global search reads real results and zero-based next pages instead of the open collection',()=>{
+  const html='<a href="/dir/+account">Kolekcja konta</a><div id="LoadGeneralContent"><ul class="browse_collections"><li><a href="/vid/+unrelated">Inny film</a></li></ul><ul id="search_files_result"><li><a href="/vid/+stargate" title="Stargate 1994"><img data-src="https://img.vider.info/i/stargate/thumb.png"></a><div class="data"><p class="title"><a href="/vid/+stargate">Stargate 1994</a></p><a href="/dir/+movies">Filmy użytkownika</a></div></li><li><a href="/vid/+sg1" title="Stargate SG-1 S01E01">Stargate SG-1 S01E01</a></li></ul><div id="search_pages_1"><span data-href="/search/movies/Stargate/0">Poprzednia</span><span data-href="/search/movies/Stargate/2">Następna</span><span data-href="https://outside.invalid/search/movies/Stargate/99">Reklama</span><span data-href="/search/movies/Other/99">Inne wyszukiwanie</span></div></div>';
+  const result=parseViderCatalog(html,origin+'search/movies/Stargate/1',{query:'Stargate'});
+  assert.deepEqual(result.items.map(item=>item.title),['Stargate SG-1','Stargate 1994']);
+  assert.deepEqual(result.folders,[]);assert.equal(result.currentPage,2);
+  assert.deepEqual(result.pages.map(page=>page.page),[1,3]);assert.equal(result.totalPages,undefined);
+  assert.match(result.searchScope,/całym serwisie/);
+  const last=parseViderCatalog('<div id="LoadGeneralContent"><ul id="search_files_result"><div>Brak wyników wyszukiwania</div></ul></div>',origin+'search/movies/Stargate/2',{query:'Stargate'});
+  assert.deepEqual(last.items,[]);assert.equal(last.totalPages,3);
+});
+
 test('Source diagnostics distinguish DNS, unreachable LAN and manual CAPTCHA',()=>{
   for(const error of [{code:'ENOTFOUND'},{cause:{code:'EAI_AGAIN'}},{message:'page.goto: net::ERR_NAME_NOT_RESOLVED at https://secret.invalid/'}])assert.match(sourceErrorMessage(error,{type:'vider'}),/DNS/);
   assert.match(sourceErrorMessage({code:'ETIMEDOUT'},{type:'przystan'}),/między sieciami/);

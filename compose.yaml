@@ -1,7 +1,7 @@
 services:
   cinema:
     build: .
-    image: ${APP_IMAGE:-ghcr.io/hattimon/cinema-hub:1.3.8}
+    image: ${APP_IMAGE:-ghcr.io/hattimon/cinema-hub:1.3.9}
     restart: unless-stopped
     init: false
     ports:

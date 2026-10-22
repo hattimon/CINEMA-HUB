@@ -5,6 +5,11 @@ export function viderPageReady() {
   if([...document.querySelectorAll('.g-recaptcha,iframe[src*="captcha"],#cf-challenge-running')].some(visible))return true;
   const main=document.querySelector('#LoadGeneralContent')||document.body;
   if(!main)return false;
+  if(location.pathname.startsWith('/search/')){
+    const results=main.querySelector('#search_files_result');
+    if(!visible(results))return false;
+    return [...results.querySelectorAll('a[href]')].some(anchor=>visible(anchor)&&/^\/vid\/[+a-z0-9_-]+\/?$/i.test(new URL(anchor.href,location.href).pathname))||/brak wyników|nie znaleziono/i.test(results.innerText||'');
+  }
   if([...main.querySelectorAll('.video_meta h1,video,iframe[src*="/embed/video/"]')].some(visible))return true;
   if([...main.querySelectorAll('a[href]')].some(anchor=>visible(anchor)&&/^\/(?:vid|dir)\/[+a-z0-9_-]+\/?$/i.test(new URL(anchor.href,location.href).pathname)))return true;
   // An explicitly empty directory or access notice is also a complete response.

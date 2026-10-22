@@ -32,12 +32,14 @@ export function isViderVideo(url) {return videoPath.test(new URL(url).pathname);
 
 export function parseViderCatalog(html,base,{query='',kind='all'}={}) {
   const $=load(html),items=[],folders=[],seen=new Set();
+  const searchRoute=/^\/search\/([^/]+)\/([^/]+)(?:\/(\d+))?\/?$/.exec(new URL(base).pathname);
   const challenge=/captcha|cloudflare|verify you are human|weryfikacj.{0,15}człowieka/i.test($('title').text())||
     !!$('iframe[src*="captcha"],.g-recaptcha,[data-sitekey],#cf-challenge-running').length;
   // Account menus also contain /dir/ links while the AJAX catalog is loading.
   const main=$('#LoadGeneralContent').length?$('#LoadGeneralContent'):$.root();
   const collections=main.find('.browse_collections');
-  const listing=collections.length?collections:main;
+  const searchListing=main.find('#search_files_result');
+  const listing=searchListing.length?searchListing:collections.length?collections:main;
   listing.find('a[href]').each((_,element)=>{
     const anchor=$(element),url=viderURL(anchor.attr('href'),base);if(!url||seen.has(url.href))return;
     const isVideo=videoPath.test(url.pathname),isDir=directoryPath.test(url.pathname);
@@ -45,9 +47,9 @@ export function parseViderCatalog(html,base,{query='',kind='all'}={}) {
     const card=anchor.closest('article,li,.item,.video,.video-item,.video-box,.file,.entry,.card');
     const title=clean(anchor.attr('title')||anchor.attr('aria-label')||anchor.find('.txt_md,.txt_sm').first().text()||card.find('h1,h2,h3,.title,.name').first().text()||anchor.find('img').first().attr('alt')||anchor.text())||
       decodeURIComponent(url.pathname.split('/').filter(Boolean).pop()||'Wideo');
-    if(query&&!title.toLowerCase().includes(query.toLowerCase()))return;
+    if(query&&!searchRoute&&!title.toLowerCase().includes(query.toLowerCase()))return;
     seen.add(url.href);
-    if(isDir){folders.push({title,path:url.pathname.replace(/^\//,'')});return;}
+    if(isDir){if(!searchListing.length)folders.push({title,path:url.pathname.replace(/^\//,'')});return;}
     const poster=anchor.find('img').first().attr('data-src')||anchor.find('img').first().attr('src')||card.find('img').first().attr('data-src')||card.find('img').first().attr('src')||'';
     const time=/\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/.exec(anchor.text());
     const seconds=time?Number(time[1]||0)*3600+Number(time[2])*60+Number(time[3]):0;
@@ -62,7 +64,16 @@ export function parseViderCatalog(html,base,{query='',kind='all'}={}) {
       if(!query||detail.title.toLowerCase().includes(query.toLowerCase()))items.push({url:base,title:detail.title,kind:detail.kind,poster:detail.poster,description:detail.description,rating:null,ratingScale:10,year:detail.year});
     }
   }
-  return {items:organizeVider(items,base,kind),folders,filters:[],pages:[],challenge,loggedIn,searchScope:query?'Vider: wyszukiwanie w aktualnie otwartym katalogu.':''};
+  const currentPage=Number(searchRoute?.[3]||0)+1,pages=new Map();
+  if(searchRoute)main.find('#search_pages_1 [data-href],#search_pages_2 [data-href],#search_pages_1 a[href],#search_pages_2 a[href]').each((_,element)=>{
+    const anchor=$(element),url=viderURL(anchor.attr('data-href')||anchor.attr('href'),base);
+    const target=url&&/^\/search\/([^/]+)\/([^/]+)(?:\/(\d+))?\/?$/.exec(url.pathname);
+    if(!target||target[1]!==searchRoute[1]||target[2]!==searchRoute[2])return;
+    const page=Number(target[3]||0)+1;
+    if(Number.isSafeInteger(page)&&page>=1&&page<=10000&&page!==currentPage)pages.set(page,{page,label:clean(anchor.text())||String(page)});
+  });
+  const navigation=[...pages.values()];
+  return {items:organizeVider(items,base,kind),folders,filters:[],pages:navigation,currentPage,...(!navigation.some(p=>p.page>currentPage)?{totalPages:currentPage}:{}),challenge,loggedIn,searchScope:query?(searchRoute?'Vider: wyszukiwanie w całym serwisie.':'Vider: wyszukiwanie w aktualnie otwartym katalogu.'):''};
 }
 
 export function parseViderDetail(html,url) {

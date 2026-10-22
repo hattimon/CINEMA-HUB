@@ -5,7 +5,7 @@ import httpProxy from 'http-proxy';
 import { randomBytes } from 'node:crypto';
 import { installAccountRoutes } from './account-routes.mjs';
 import { resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync,readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { dataDir,db,uid,hashId,now,passwordMatches,passwordHash,encrypt,addUser,getSettings,saveSettings,getSource,listSources,deleteSource,saveItem,getItem,decorateItem,getDestination,filenameFor } from './store.mjs';
 import { catalog,detail,przystanEntries } from './adapters.mjs';
@@ -19,6 +19,7 @@ import { remoteList,safePath } from './rclone.mjs';
 import { assertSourceAvailable } from './limits.mjs';
 import { isViderOrigin } from './vider-parser.mjs';
 
+const appVersion=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 export const app=express();app.disable('x-powered-by');app.use(cookieParser());app.use(express.json({limit:'128kb'}));
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff').set('Referrer-Policy','same-origin').set('X-Frame-Options','SAMEORIGIN');if(req.path.startsWith('/api'))res.set('Cache-Control','no-store');next();});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
@@ -31,7 +32,7 @@ const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.COOKIE_S
 installAccountRoutes(app,auth,cookieOptions);
 const loginSchema=z.object({username:z.string().min(1).max(40),password:z.string().min(1).max(256),remember:z.boolean().default(false)});
 const loginLimits=new Map();
-app.get('/api/health',(_req,res)=>res.json({status:'ok',service:'cinema-hub',version:'1.3.8',localRevision:'catalog-pagination-20261020'}));
+app.get('/api/health',(_req,res)=>res.json({status:'ok',service:'cinema-hub',version:appVersion,localRevision:'search-player-20261022'}));
 app.get('/download/cinema-hub.apk',(_req,res,next)=>{res.type('application/vnd.android.package-archive');res.download(existsSync(resolve('clients/CinemaHub-AndroidTV-v1.3.6.apk'))?resolve('clients/CinemaHub-AndroidTV-v1.3.6.apk'):resolve(dataDir,'clients','cinema-hub.apk'),'CinemaHub-AndroidTV-v1.3.6.apk',error=>{if(error&&!res.headersSent)next(error);});});
 app.post('/api/auth/login',asyncRoute(async(req,res)=>{const value=loginSchema.parse(req.body);const ip=req.socket.remoteAddress;let limit=loginLimits.get(ip);if(limit&&limit.reset<now()){loginLimits.delete(ip);limit=null;}if(limit&&limit.count>=8)throw fail('Za wiele prób. Spróbuj za 5 minut.',429);const user=db.prepare('SELECT * FROM users WHERE username=? COLLATE NOCASE').get(value.username);
   if(!user||!passwordMatches(value.password,user.password)){loginLimits.set(ip,{count:(limit?.count||0)+1,reset:limit?.reset||now()+5*60000});throw fail('Nieprawidłowy login lub hasło.',401);}loginLimits.delete(ip);const token=uid()+uid();const ttl=(value.remember?30:1)*86400000;db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(hashId(token),user.id,now()+ttl);res.cookie('cinema_session',token,{...cookieOptions,...(value.remember?{maxAge:ttl}:{})});res.json({id:user.id,username:user.username,role:user.role,initial:!!user.initial});}));
@@ -150,7 +151,7 @@ app.post('/api/downloads/:id/cancel',auth,(req,res,next)=>{try{res.json(cancelDo
 app.post('/api/downloads/:id/retry',auth,(req,res,next)=>{try{const job=downloadFor(req.params.id,req.user.id);res.json(updateDownload({...job,userId:req.user.id},'queued',{attempts:0,bytes:0,error:'',retryAfter:0}));}catch(e){next(e);}});
 app.post('/api/destinations/:id/test',auth,asyncRoute(async(req,res)=>{const dest=getDestination(req.params.id,req.user.id);await remoteList({type:dest.type,url:dest.config.url,credentials:{...dest.config,...dest.credentials}},'');res.json({ok:true});}));
 app.post('/api/destinations/:id/as-source',auth,(req,res,next)=>{try{const dest=getDestination(req.params.id,req.user.id);const existing=db.prepare('SELECT id FROM sources WHERE user_id=? AND name=? AND type=? AND url=?').get(req.user.id,dest.name,dest.type,dest.config.url);if(existing)return res.json({id:existing.id});const id=uid();db.prepare('INSERT INTO sources(id,user_id,name,type,url,secret,enabled) VALUES(?,?,?,?,?,?,1)').run(id,req.user.id,dest.name,dest.type,dest.config.url,encrypt({...dest.config,...dest.credentials}));res.status(201).json({id});}catch(e){next(e);}});
-app.get('/api/diagnostics',auth,(req,res)=>res.json({version:'1.3.8',database:'ok',sources:listSources(req.user.id).length,browserLogin:sourceBrowser.lease?.userId===req.user.id,containerStoresMedia:false,secureCookie:cookieOptions.secure,downloads:db.prepare('SELECT status,COUNT(*) AS count FROM downloads WHERE user_id=? GROUP BY status').all(req.user.id)}));
+app.get('/api/diagnostics',auth,(req,res)=>res.json({version:appVersion,database:'ok',sources:listSources(req.user.id).length,browserLogin:sourceBrowser.lease?.userId===req.user.id,containerStoresMedia:false,secureCookie:cookieOptions.secure,downloads:db.prepare('SELECT status,COUNT(*) AS count FROM downloads WHERE user_id=? GROUP BY status').all(req.user.id)}));
 const proxy=httpProxy.createProxyServer({target:'http://127.0.0.1:6080',ws:true});proxy.on('error',(_err,_req,res)=>{if(res?.writeHead){res.writeHead(503);res.end('Przeglądarka logowania jest niedostępna.');}else res?.destroy();});
 app.use('/browser',auth,(req,res)=>{if(sourceBrowser.lease?.userId!==req.user.id||sourceBrowser.lease.expires<now())return res.status(403).end();proxy.web(req,res);});
 const dist=resolve('dist');if(existsSync(dist))app.use(express.static(dist,{index:false}));

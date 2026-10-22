@@ -44,11 +44,11 @@ export async function catalog(source,{kind='all',filters={},page=1,query='',fold
     // A Vider source may point to the home page or directly to a shared directory.
     // Only explicit /dir/... child routes can be opened through the folder selector.
     if(folder&&!/^dir\/[+a-z0-9_-]+\/?$/i.test(folder))throw new Error('Nieprawidłowy katalog Vider.');
-    const url=folder?viderURL('/'+folder,source.url)?.href:source.url;
+    const url=query?viderURL('/search/movies/'+encodeURIComponent(query)+'/'+(page-1),source.url)?.href:folder?viderURL('/'+folder,source.url)?.href:source.url;
     if(!url)throw new Error('Katalog wykracza poza źródło Vider.');
     const html=await sourceBrowser.html(source,url);
     const parsed=parseViderCatalog(html,url,{kind,query});
-    if(page>1)return {...parsed,items:[],folders:[],searchScope:'Vider: odczytywana jest tylko bieżąca strona katalogu.'};
+    if(page>1&&!query)return {...parsed,items:[],folders:[],searchScope:'Vider: odczytywana jest tylko bieżąca strona katalogu.'};
     if((parsed.challenge||/<title[^>]*>[^<]*(?:404|not found|nie znaleziono)/i.test(html))&&!parsed.items.length&&!parsed.folders.length)throw Object.assign(new Error('Vider nie udostępnił katalogu. Otwórz ręczne logowanie / CAPTCHA w ustawieniach i sprawdź adres źródła.'),{status:409});
     return parsed;
   }
@@ -61,18 +61,15 @@ export async function catalog(source,{kind='all',filters={},page=1,query='',fold
     let html;
     if(query) {
       buildFilterURL(source.url,kind,filters,page,schema);
-      const result=await sourceBrowser.page(source,source.url,async p=>{
-        const initial=parseCatalog(await p.content(),source.url);if(initial.challenge)return initial;
-        const csrf=await p.locator('meta[name="csrf-token"]').getAttribute('content')||'';
-        const response=await p.request.post(new URL('szukam',source.url).href,{form:{phrase:query,_csrf:csrf},timeout:25000});
-        if(!response.ok())throw new Error('Wyszukiwanie portalu jest niedostępne.');
-        return {...parseCatalog(await response.text(),source.url,{includeRecommendations:false}),loggedIn:initial.loggedIn};
-      });
+      // Use the portal's full search form, rather than its autocomplete fragment.
+      const searchURL=new URL('search',source.url);searchURL.searchParams.set('phrase',query);if(page>1)searchURL.searchParams.set('page',String(page));
+      const result=parseCatalog(await sourceBrowser.html(source,searchURL.href),searchURL.href,{includeRecommendations:false,searchResults:true});
+      if(result.requiresLogin)throw Object.assign(new Error('Sesja Filman wygasła. Otwórz logowanie / CAPTCHA w ustawieniach źródła i zaloguj się ponownie.'),{status:409,requiresAction:true});
       let items=result.items.filter(i=>kind==='all'||i.kind===(kind==='series'?'series':'movie'));
-      // Filter the complete search response using real metadata; a catalog page is never used as a search boundary.
+      // Search the portal before applying the selected media type and metadata.
       if(hasFilters) {const full=[];for(const item of items){const d=await detail(source,item);if(matchesFilters(d,filters,schema))full.push(d);}items=full;}
       const order=filters.sort?.[0];if(['rate','filmweb'].includes(order))items.sort((a,b)=>(order==='filmweb'?b.imdb:b.rating||0)-(order==='filmweb'?a.imdb:a.rating||0));if(order==='premiere')items.sort((a,b)=>(b.year||0)-(a.year||0));
-      const totalPages=Math.max(1,Math.ceil(items.length/24));return {...result,items:items.slice((page-1)*24,page*24),currentPage:page,totalPages,pages:[...new Set([page-1,page+1,totalPages])].filter(p=>p>=1&&p<=totalPages&&p!==page).map(p=>({page:p,label:String(p)})),filters:schema};
+      return {...result,items,filters:schema};
     }
     html=url===initialRoute&&first?first:await sourceBrowser.html(source,url);
     const result=parseCatalog(html,url,{includeRecommendations:kind==='all'});

@@ -1,5 +1,15 @@
 # Historia wydań
 
+## Serwer i kontener 1.3.9 — wyszukiwanie i odtwarzacz bez przewijania
+
+- **Wyszukiwanie w zaznaczonych źródłach.** Jedno zapytanie obejmuje wybrane, włączone serwisy: pojedynczy Filman lub Vider, oba jednocześnie albo większy zestaw skonfigurowanych źródeł. Wyłączone źródła nie są odpytywane. Problem z jednym serwisem nie usuwa wyników pozostałych.
+- **Pełna wyszukiwarka Filman.** Serwer korzysta z właściwej strony wyszukiwania zamiast fragmentu podpowiedzi. Odczytuje filmy i seriale, również z tytułem tekstowym lub bez okładki, oraz zachowuje strony wyników. Strona logowania zwrócona ze statusem HTTP 200 powoduje komunikat o konieczności ponownego logowania zamiast mylącej pustej listy.
+- **Vider przeszukuje cały serwis.** Zapytanie nie ogranicza się już do aktualnie otwartej strony katalogu. Panel czeka na załadowanie wyników i obsługuje następne oraz poprzednie strony. Odnośniki do katalogów użytkowników nie stają się dodatkowymi wynikami.
+- **Odtwarzacz bez pionowego paska przewijania.** Film mieści się w oknie i w pełnym ekranie aplikacji, także przy profilach obrazu i efektach CRT. Przewijanie strony pod filmem jest zablokowane, a zamknięcie odtwarzacza przywraca zwykłe przewijanie katalogu.
+- **Spójny numer wersji.** Stan serwera i diagnostyka pobierają wersję 1.3.9 z pakietu aplikacji. Aktualizacja zachowuje istniejące dane, ustawienia i logowania.
+
+To wydanie kontenera z tagiem `v1.3.9`, dla `linux/amd64` i `linux/arm64`. Wersja i tag Android TV pozostają niezależne. Szczegóły: [wydanie serwera 1.3.9](docs/RELEASE-1.3.9.md).
+
 ## Serwer i kontener 1.3.8 — katalog, strony i automatyczny wybór źródła
 
 - **Proponowane tytuły tylko w Bibliotece.** Sekcje z prawdziwymi filmami i serialami polecanymi przez Filman są dostępne wyłącznie na pierwszej, niefiltrowanej stronie Biblioteki. Widoki Filmy i Seriale zaczynają się od właściwej listy wyników. Karuzela portalu, boczne panele i komentarze nie są częścią tej listy.

@@ -50,6 +50,10 @@ before(async()=>{
     if(url.pathname==='/vider-player-click'){viderPlayerClicks++;return res.end('ok');}
     if(url.pathname==='/folder/'||url.pathname==='/'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(`<div id="belt">Zalogowany jako: test</div><meta name="csrf-token" content="test-token">${filters}<ul id="item-list">${tile('/m/test','Film próbny')}${tile('/s/1/serial','Serial próbny')}</ul>`);}
     if(url.pathname==='/szukam'){req.resume();return res.end(`<ul>${tile('/m/test','Film próbny')}${tile('/s/1/serial','Serial próbny')}</ul>`);}
+    if(url.pathname==='/search')return res.end(`<div id="belt">Zalogowany jako: test</div><div id="item-list">${tile('/m/test','Film próbny')}${tile('/s/1/serial','Serial próbny')}</div>`);
+    if(url.pathname==='/search-library/')return res.end('<a href="Stargate.mp4">Stargate 1994.mp4</a>');
+    if(url.pathname==='/search/movies/Stargate/0')return res.end('<div id="LoadGeneralContent"><a href="/dir/+account">Kolekcja konta</a><ul id="search_files_result"><div>Proszę czekać, szukam...</div></ul><div id="search_pages_1"></div></div><script>setTimeout(()=>{document.querySelector("#search_files_result").innerHTML='+JSON.stringify('<li><a href="/vid/+sg1" title="Stargate SG-1 S01E01">Stargate SG-1 S01E01</a></li><li><a href="/vid/+movie" title="Stargate 1994">Stargate 1994</a></li>')+';document.querySelector("#search_pages_1").innerHTML='+JSON.stringify('<span data-href="/search/movies/Stargate/1">Następna</span>')+';},600);</script>');
+    if(url.pathname==='/search/movies/Stargate/1')return res.end('<div id="LoadGeneralContent"><ul id="search_files_result"><li><a href="/vid/+atlantis" title="Stargate Atlantis S01E01">Stargate Atlantis S01E01</a></li></ul><div id="search_pages_1"><span data-href="/search/movies/Stargate/0">Poprzednia</span></div></div>');
     if(url.pathname==='/link/token'){hostingClicks++;return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/player-fixture').toString('base64')}));}
     if(url.pathname==='/link/episode-token')return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/episode-player').toString('base64')}));
     if(url.pathname==='/episode-player')return res.end('<video src="/film.mp4" autoplay muted controls></video>');
@@ -113,18 +117,28 @@ test('App login, remember cookie, authentication and independent accounts',async
   const settings=(await request('/settings')).value;assert.equal(settings.autoplay,false);await request('/settings',{...settings,theme:'cyan'},admin,'PUT');assert.equal((await request('/settings',null,other)).value.theme,'violet');assert.equal((await request('/settings',{...settings,defaultSources:[own[0].id]},other,'PUT')).status,404);
   const attacker=await fetch(base+'/api/auth/login',{method:'POST',headers:{Origin:'https://external.invalid','Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:'admin'})});assert.equal(attacker.status,403);
 });
+test('Health and diagnostics report the container package version',async()=>{
+  const version=JSON.parse(readFileSync(resolve('package.json'),'utf8')).version;
+  const health=await request('/health',undefined,null),diagnostics=await request('/diagnostics');
+  assert.equal(health.status,200);assert.equal(diagnostics.status,200);
+  assert.equal(health.value.version,version);assert.equal(diagnostics.value.version,version);
+});
+
 test('Filman API preserves page order, separates recommendations and counts filtered and search pages',async()=>{
-  const originalHTML=sourceBrowser.html,originalPage=sourceBrowser.page,visits=[];
+  const originalHTML=sourceBrowser.html,visits=[];
   let seriesUnavailable=false;
   const created=await request('/sources',{name:'Catalog pagination fixture',type:'filman',url:origin+'/',credentials:{}});
   assert.equal(created.status,201,JSON.stringify(created.value));
   const sourceId=created.value.id;
   sourceBrowser.html=async(_source,address)=>{
     visits.push(address);const url=new URL(address),page=Number(url.searchParams.get('page')||1),filtered=url.pathname.includes('category:'),count=filtered?2:3;
+    if(url.pathname==='/search'){
+      assert.equal(url.searchParams.get('phrase'),'Wynik');
+      return `<div id="slider">${tile('/m/recommended','Rekomendacja')}</div><div id="item-list">${Array.from({length:page===3?1:24},(_,index)=>tile('/m/search-'+((page-1)*24+index),'Wynik '+((page-1)*24+index+1))).join('')}</div><ul class="pagination"><li><a href="?page=3">3</a></li></ul>`;
+    }
     if(seriesUnavailable&&url.pathname==='/seriale/')throw new Error('Optional recommendations unavailable');
     return `${filters}<div id="slider">${tile('/s/recommended','Polecany serial')}</div><div id="item-list">${tile('/s/'+(filtered?'filtered-':'plain-')+page,(filtered?'Filtrowany ':'Strona ')+page)}</div><ul class="pagination"><li class="active"><a href="#!" data-pagenumber="${page}">${page}</a></li><li><a href="?page=${count}">${count}</a></li></ul>`;
   };
-  sourceBrowser.page=async(_source,_url,read)=>read({content:async()=>'<div id="belt">Zalogowany jako: test</div>',locator:()=>({getAttribute:async()=>''}),request:{post:async()=>({ok:()=>true,text:async()=>`<div id="slider">${tile('/m/recommended','Rekomendacja')}</div><div id="item-list">${Array.from({length:49},(_,index)=>tile('/m/search-'+index,'Wynik '+(index+1))).join('')}</div>`})}});
   try{
     const library=(await request('/catalog',{sources:[sourceId],kind:'all',page:1})).value.groups[0];
     assert.equal(library.recommendations.length,1);assert.ok(library.recommendations[0].id);assert.equal(library.recommendations[0].sourceId,sourceId);
@@ -149,7 +163,82 @@ test('Filman API preserves page order, separates recommendations and counts filt
     }
     seriesUnavailable=true;
     const partial=await request('/catalog',{sources:[sourceId],kind:'all',page:1});assert.deepEqual(partial.value.errors,[]);assert.equal(partial.value.groups[0].items.length,1);
-  }finally{sourceBrowser.html=originalHTML;sourceBrowser.page=originalPage;await request('/sources/'+sourceId,{},admin,'DELETE');}
+  }finally{sourceBrowser.html=originalHTML;await request('/sources/'+sourceId,{},admin,'DELETE');}
+});
+
+test('Search combines exactly the enabled selected services and preserves results when a portal needs login',async()=>{
+  const originalHTML=sourceBrowser.html,created=[],visits=[];
+  let loginRequired=false;
+  try{
+    for(const [name,type,path,enabled] of [['Filman search','filman','/',true],['Vider search','vider','/',true],['Additional library','http','/search-library/',true],['Disabled portal','filman','/',false]]){
+      const result=await request('/sources',{name,type,url:origin+path,enabled});assert.equal(result.status,201);created.push(result.value.id);
+    }
+    sourceBrowser.html=async(source,address)=>{
+      visits.push({id:source.id,address});
+      if(source.id===created[0])return loginRequired?'<title>Logowanie - Filman.cc</title>':`${filters}<div id="item-list">${tile('/m/stargate','Stargate 1994')}${tile('/s/sg1','Stargate SG-1')}</div>`;
+      if(source.id===created[1])return '<div id="LoadGeneralContent"><ul id="search_files_result"><li><a href="/vid/+sg1" title="Stargate SG-1 S01E01">Stargate SG-1 S01E01</a></li><li><a href="/vid/+movie" title="Stargate 1994">Stargate 1994</a></li></ul></div>';
+      throw new Error('An unselected portal must not be accessed');
+    };
+    for(const selection of [[created[0]],[created[1]],created.slice(0,2),created.slice(0,3),created]){
+      visits.length=0;
+      const result=await request('/catalog',{sources:selection,query:'Stargate',kind:'all',page:1});
+      assert.equal(result.status,200);assert.deepEqual(result.value.errors,[]);
+      assert.deepEqual(result.value.groups.map(group=>group.sourceId),selection.filter(id=>id!==created[3]));
+      assert.ok(result.value.groups.every(group=>group.items.length>0));
+      assert.ok(visits.every(visit=>selection.includes(visit.id)&&visit.id!==created[3]));
+      for(const visit of visits.filter(visit=>visit.id===created[1]))assert.equal(new URL(visit.address).pathname,'/search/movies/Stargate/0');
+    }
+    loginRequired=true;
+    const partial=await request('/catalog',{sources:created.slice(0,2),query:'Stargate'});
+    assert.deepEqual(partial.value.groups.map(group=>group.sourceId),[created[1]]);
+    assert.equal(partial.value.errors.length,1);assert.match(partial.value.errors[0].message,/Sesja Filman wygasła/);
+  }finally{sourceBrowser.html=originalHTML;for(const id of created)await request('/sources/'+id,{},admin,'DELETE');}
+});
+
+test('Vider global search waits for its AJAX results and opens subsequent result pages',{skip:!process.env.CHROMIUM_PATH},async()=>{
+  const created=await request('/sources',{name:'Global Vider search',type:'vider',url:origin+'/',enabled:true});
+  const sourceId=created.value.id;
+  try{
+    for(const page of [1,2]){
+      const result=await request('/catalog',{sources:[sourceId],query:'Stargate',page});
+      assert.deepEqual(result.value.errors,[]);const group=result.value.groups[0];
+      assert.equal(group.currentPage,page);assert.deepEqual(group.folders,[]);
+      assert.deepEqual(group.items.map(item=>item.title),page===1?['Stargate SG-1','Stargate 1994']:['Stargate Atlantis']);
+      assert.deepEqual(group.pages.map(value=>value.page),page===1?[2]:[1]);
+    }
+  }finally{await request('/sources/'+sourceId,{},admin,'DELETE');}
+});
+
+test('Rendered search follows the selected services on desktop and mobile',{skip:!process.env.CHROMIUM_PATH},async()=>{
+  const {chromium}=await import('playwright');
+  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH});
+  const sources=[['filman','Filman',true],['vider','Vider',true],['http','Dodatkowe źródło',true],['disabled','Wyłączone źródło',false]].map(([id,name,enabled])=>({id,name,enabled,type:id==='disabled'?'http':id,url:origin+'/'}));
+  const settings={...(await request('/settings')).value,sounds:false,combineSources:false,defaultSources:['filman','vider']};
+  try{for(const viewport of [{width:1280,height:900},{width:390,height:844}]){
+    const context=await browser.newContext({viewport}),calls=[],errors=[];
+    await context.route('**/api/**',async route=>{
+      const path=new URL(route.request().url()).pathname;let value=[];
+      if(path==='/api/auth/me')value={id:'search-qa',username:'qa',role:'admin',initial:false};
+      else if(path==='/api/settings')value=settings;
+      else if(path==='/api/sources')value=sources;
+      else if(path==='/api/catalog'){
+        const body=route.request().postDataJSON();calls.push(body);
+        value={groups:body.sources.map(id=>({sourceId:id,sourceName:sources.find(s=>s.id===id).name,filters:[],pages:[],currentPage:1,totalPages:1,items:body.query?[{id:'result-'+id,sourceId:id,sourceName:sources.find(s=>s.id===id).name,title:'Stargate '+id,kind:id==='vider'?'series':'movie',url:origin+'/m/'+id,poster:'',rating:null}]:[]})),errors:[]};
+      }
+      await route.fulfill({json:value});
+    });
+    const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
+    await page.goto(base);assert.match(await page.title(),/Cinema Hub/i);
+    await page.getByRole('textbox',{name:'Szukaj filmów i seriali'}).fill('Stargate');await page.getByRole('button',{name:'Szukaj',exact:true}).click();
+    await page.getByRole('button',{name:'Zobacz Stargate filman',exact:true}).waitFor();await page.getByRole('button',{name:'Zobacz Stargate vider',exact:true}).waitFor();
+    assert.deepEqual(calls.at(-1).sources.sort(),['filman','vider']);assert.equal(calls.at(-1).query,'Stargate');
+    await page.getByRole('checkbox',{name:'Filman',exact:true}).uncheck();await page.getByRole('button',{name:'Zobacz Stargate filman',exact:true}).waitFor({state:'detached'});assert.deepEqual(calls.at(-1).sources,['vider']);
+    await page.getByRole('checkbox',{name:'Dodatkowe źródło',exact:true}).check();await page.getByRole('button',{name:'Zobacz Stargate http',exact:true}).waitFor();assert.deepEqual(calls.at(-1).sources.sort(),['http','vider']);
+    await page.getByRole('button',{name:'Wszystkie źródła',exact:true}).click();await page.getByRole('button',{name:'Zobacz Stargate filman',exact:true}).waitFor();assert.deepEqual(calls.at(-1).sources.sort(),['filman','http','vider']);
+    assert.equal(await page.getByRole('checkbox',{name:'Wyłączone źródło',exact:true}).count(),0);assert.equal(await page.locator('vite-error-overlay').count(),0);assert.deepEqual(errors,[]);
+    if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,`search-selected-services-${viewport.width}.png`)});
+    await context.close();
+  }}finally{await browser.close();}
 });
 
 test('Catalog pagination starts at the top, accepts page numbers and preserves filters on desktop, mobile and TV',{skip:!process.env.CHROMIUM_PATH,timeout:120000},async()=>{
@@ -847,13 +936,20 @@ test('Fullscreen browser menu dialogs retain the active movie',{skip:!hasTools||
   const settings=(await request('/settings')).value;await request('/settings',{defaultSources:[source.id]},admin,'PATCH');const {chromium}=await import('playwright');const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required']});
   try{
     const context=await browser.newContext({viewport:{width:1280,height:720}});const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(base);await page.getByRole('button',{name:'Zobacz Film lokalny',exact:true}).click({timeout:30000});await page.locator('.playable-row').getByRole('button',{name:'Odtwórz',exact:true}).click({timeout:20000});await page.waitForFunction(()=>{const video=document.querySelector('.player-overlay video');return video&&!video.paused&&video.currentTime>0;});
-    await page.getByRole('button',{name:'Pełny ekran',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});
+    const noWindowScrollbar=async label=>{
+      const layout=await page.evaluate(()=>{const player=document.querySelector('.player-overlay'),root=document.documentElement;return {rootOverflow:getComputedStyle(root).overflowY,bodyOverflow:getComputedStyle(document.body).overflowY,playerOverflow:getComputedStyle(player).overflowY,width:root.clientWidth,viewport:innerWidth,height:player.clientHeight,contentHeight:player.scrollHeight};});
+      assert.equal(layout.rootOverflow,'hidden',label);assert.equal(layout.bodyOverflow,'hidden',label);assert.equal(layout.playerOverflow,'hidden',label);assert.equal(layout.width,layout.viewport,label);assert.ok(layout.contentHeight<=layout.height,label+' must fit without clipping controls');
+      const before=await page.evaluate(()=>document.scrollingElement.scrollTop);await page.mouse.wheel(0,500);await page.evaluate(()=>new Promise(requestAnimationFrame));assert.equal(await page.evaluate(()=>document.scrollingElement.scrollTop),before,label+' must block background scrolling');
+    };
+    for(const viewport of [{width:1920,height:1080},{width:390,height:844},{width:1280,height:720}]){await page.setViewportSize(viewport);await noWindowScrollbar('Window '+viewport.width);if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,`player-window-${viewport.width}.png`)});}
+    await page.getByRole('button',{name:'Pełny ekran',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});await noWindowScrollbar('Fullscreen');
     await page.getByRole('button',{name:'Menu efektów podczas odtwarzania',exact:true}).click();const liveBefore=await page.locator('.player-overlay video').evaluate(video=>({time:video.currentTime,src:video.currentSrc}));await page.getByRole('menuitemradio',{name:'Projektor — jaśniejszy',exact:true}).click();await page.getByRole('menuitemradio',{name:'150%',exact:true}).click();await page.waitForFunction(time=>{const video=document.querySelector('.player-overlay video');return !video.paused&&video.currentTime>time+.15;},liveBefore.time);assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),liveBefore.src,'The effects menu does not pause or replace the stream');if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'playback-live-effects-menu.png')});await page.getByRole('button',{name:'Zamknij menu',exact:true}).click();
     await page.locator('.player-overlay video').click();await page.getByRole('button',{name:'Wznów',exact:true}).waitFor();const stream=await page.locator('.player-overlay video').evaluate(video=>video.currentSrc);
     const timeline=page.getByRole('slider',{name:'Pozycja odtwarzania',exact:true});await timeline.fill('80');assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentTime),80);assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.paused),true);await timeline.press('ArrowLeft');assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentTime),70);
-    const activeStream=await page.locator('.player-overlay video').evaluate(video=>video.currentSrc);await page.getByRole('button',{name:'Menu odtwarzacza',exact:true}).click();await page.getByRole('menuitemradio',{name:'Projektor — jaśniejszy',exact:true}).click();await page.getByRole('menuitemradio',{name:'CRT klasyczny',exact:true}).click();await page.getByRole('menuitemradio',{name:'150%',exact:true}).click();assert.match(await page.locator('.player-overlay video').evaluate(video=>getComputedStyle(video).filter),/brightness\(1.16\)/);assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),activeStream);if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'playback-browser-projector-crt.png')});await page.getByRole('button',{name:'Zamknij menu',exact:true}).click();
+    const activeStream=await page.locator('.player-overlay video').evaluate(video=>video.currentSrc);await page.getByRole('button',{name:'Menu odtwarzacza',exact:true}).click();await page.getByRole('menuitemradio',{name:'Projektor — jaśniejszy',exact:true}).click();await page.getByRole('menuitemradio',{name:'CRT klasyczny',exact:true}).click();await page.getByRole('menuitemradio',{name:'150%',exact:true}).click();assert.match(await page.locator('.player-overlay video').evaluate(video=>getComputedStyle(video).filter),/brightness\(1.16\)/);assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),activeStream);await noWindowScrollbar('Fullscreen with image effects');if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'playback-browser-projector-crt.png')});await page.getByRole('button',{name:'Zamknij menu',exact:true}).click();
     await page.getByRole('button',{name:'Zmień źródło',exact:true}).click();const dialog=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zmień źródło',exact:true})});await dialog.waitFor();assert.equal(await dialog.evaluate(el=>document.fullscreenElement?.contains(el)),true);await dialog.getByRole('button',{name:'Zamknij',exact:true}).click();assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),stream);
     await page.getByRole('button',{name:'Zapisz',exact:true}).click();const save=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zapisz film',exact:true})});await save.waitFor();assert.equal(await save.evaluate(el=>document.fullscreenElement?.contains(el)),true);await save.getByRole('button',{name:'Zamknij',exact:true}).click();await page.getByRole('button',{name:'Wznów',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.paused),false);assert.deepEqual(errors,[]);
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.fullscreenElement);await noWindowScrollbar('After leaving fullscreen');await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();await page.waitForFunction(()=>!document.documentElement.classList.contains('player-open'));assert.notEqual(await page.evaluate(()=>getComputedStyle(document.documentElement).overflowY),'hidden','Closing playback restores normal page scrolling');
   }finally{await browser.close();await request('/settings',{defaultSources:settings.defaultSources},admin,'PATCH');}
 });
 
