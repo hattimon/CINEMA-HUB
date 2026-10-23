@@ -1,11 +1,11 @@
 export class ApiError extends Error {
   constructor(message:string,public status:number,public retryAfter?:number){super(message);this.name='ApiError';}
 }
-export async function api<T=unknown>(path:string,body?:unknown,method?:string,options:{signal?:AbortSignal;timeoutMs?:number}={}):Promise<T> {
+export async function api<T=unknown>(path:string,body?:unknown,method?:string,options:{signal?:AbortSignal;timeoutMs?:number;keepalive?:boolean}={}):Promise<T> {
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),options.timeoutMs??45000);
   const aborted=()=>controller.abort();options.signal?.addEventListener('abort',aborted,{once:true});if(options.signal?.aborted)aborted();
   try{
-  const response=await fetch('/api'+path,{method:method||(body===undefined?'GET':'POST'),credentials:'same-origin',signal:controller.signal,headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+  const response=await fetch('/api'+path,{method:method||(body===undefined?'GET':'POST'),credentials:'same-origin',signal:controller.signal,keepalive:options.keepalive,headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
   const data=await response.json().catch(()=>({error:'Serwer nie odpowiedział.'}));controller.signal.throwIfAborted();if(!response.ok)throw new ApiError(data.error||'Operacja nie powiodła się.',response.status,Number.isFinite(data.retryAfter)?data.retryAfter:undefined);return data as T;
   }catch(error){if(controller.signal.aborted&&!options.signal?.aborted)throw new ApiError('Serwer zbyt długo nie odpowiada. Ponów próbę lub wybierz hosting ręcznie.',408);throw error;}
   finally{clearTimeout(timeout);options.signal?.removeEventListener('abort',aborted);}

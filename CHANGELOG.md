@@ -1,5 +1,13 @@
 # Historia wydań
 
+## Serwer i kontener 1.3.10 — zapamiętany odcinek i paski przewijania
+
+- **Powrót do ostatniego odcinka.** „Kontynuuj” i „Ulubione” otwierają zapisany sezon oraz odcinek. Zmiana końcówki adresu odcinka Filman po zmianie sesji, np. `/0` → `/388690`, nie przenosi już do S01E01. Odcinek jest rozpoznawany także po sezonie i numerze, a stare wpisy historii są odczytywane z bieżącym adresem bez utraty czasu seansu.
+- **Zapis odporny na przerwę w połączeniu.** Przeglądarka zachowuje postęp lokalnie osobno dla każdego konta i ponawia wysyłkę po odzyskaniu połączenia, również po odświeżeniu strony. Pauza, przewinięcie, zamknięcie i opuszczenie strony zapisują bieżącą pozycję. Opóźniony starszy zapis nie nadpisuje nowszego postępu na serwerze.
+- **Spójne paski przewijania.** Katalog, okna szczegółów, lista odcinków i ustawienia korzystają z ciemnego tła oraz koloru aktywnego motywu, zamiast jasnych pasków systemowych.
+
+Tag kontenera: `v1.3.10`. Obrazy: `ghcr.io/hattimon/cinema-hub:1.3.10` dla `linux/amd64` i `linux/arm64`. Szczegóły: [wydanie serwera 1.3.10](docs/RELEASE-1.3.10.md).
+
 ## Serwer i kontener 1.3.9 — wyszukiwanie i odtwarzacz bez przewijania
 
 - **Wyszukiwanie w zaznaczonych źródłach.** Jedno zapytanie obejmuje wybrane, włączone serwisy: pojedynczy Filman lub Vider, oba jednocześnie albo większy zestaw skonfigurowanych źródeł. Wyłączone źródła nie są odpytywane. Problem z jednym serwisem nie usuwa wyników pozostałych.

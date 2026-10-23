@@ -64,7 +64,30 @@ export function deleteSource(id,userId) {
 }
 export function saveItem(sourceId,item) { const id=hashId(sourceId+':'+item.url);const old=db.prepare('SELECT value FROM items WHERE id=?').get(id);const previous=old?JSON.parse(old.value):{};const result={...previous,...item,id,sourceId};for(const key of ['title','poster','description','year','rating','imdb'])if((result[key]===null||result[key]===undefined||result[key]==='')&&previous[key])result[key]=previous[key]; db.prepare('INSERT INTO items VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(id,sourceId,JSON.stringify(result),now()); return result; }
 export function getItem(id,userId) { const row=db.prepare('SELECT i.* FROM items i JOIN sources s ON s.id=i.source_id WHERE i.id=? AND s.user_id=?').get(id,userId); if(!row) throw Object.assign(new Error('Nie znaleziono pozycji.'),{status:404}); return JSON.parse(row.value); }
-export function decorateItem(item,userId) { const favorites=db.prepare('SELECT kind FROM favorites WHERE user_id=? AND item_id=?').all(userId,item.id); const progress=db.prepare('SELECT value FROM progress WHERE user_id=? AND item_id=? ORDER BY updated DESC LIMIT 1').get(userId,item.id); return {...item,favorite:favorites.some(f=>f.kind==='favorite'),watchlist:favorites.some(f=>f.kind==='watchlist'),progress:progress?JSON.parse(progress.value):null}; }
+export function episodeForProgress(item,progress) {
+  return item.episodes?.find(episode=>episode.url===progress.episode)
+    || item.episodes?.find(episode=>Number.isInteger(progress.season)&&Number.isInteger(progress.number)&&episode.season===progress.season&&episode.number===progress.number);
+}
+export function getProgress(item,userId) {
+  const seen=new Set();
+  return db.prepare('SELECT value,updated FROM progress WHERE user_id=? AND item_id=? ORDER BY updated DESC,rowid DESC').all(userId,item.id).flatMap(row=>{
+    const saved=JSON.parse(row.value),episode=episodeForProgress(item,saved);
+    const value={...saved,...(episode?{episode:episode.url,season:episode.season,number:episode.number,title:episode.title}:{}),updatedAt:row.updated};
+    const identity=Number.isInteger(value.season)&&Number.isInteger(value.number)?`S${value.season}E${value.number}`:value.episode;
+    if(seen.has(identity))return [];seen.add(identity);return [value];
+  });
+}
+export function saveProgress(item,userId,value) {
+  const episode=episodeForProgress(item,value);
+  if((value.episode&&!episode)||(item.kind==='series'&&!episode))throw Object.assign(new Error('Nieprawidłowy odcinek.'),{status:400});
+  const updatedAt=Math.min(value.updatedAt??now(),now());
+  const saved={...value,...(episode?{episode:episode.url,season:episode.season,number:episode.number,title:episode.title}:{}),updatedAt};
+  const previous=getProgress(item,userId).find(progress=>progress.episode===saved.episode);
+  // Replaying an offline snapshot must not replace newer progress from another device.
+  if(previous&&previous.updatedAt>updatedAt)return;
+  db.prepare('INSERT INTO progress VALUES(?,?,?,?,?) ON CONFLICT(user_id,item_id,episode) DO UPDATE SET value=excluded.value,updated=excluded.updated WHERE excluded.updated>=progress.updated').run(userId,item.id,saved.episode,JSON.stringify(saved),updatedAt);
+}
+export function decorateItem(item,userId) { const favorites=db.prepare('SELECT kind FROM favorites WHERE user_id=? AND item_id=?').all(userId,item.id); return {...item,favorite:favorites.some(f=>f.kind==='favorite'),watchlist:favorites.some(f=>f.kind==='watchlist'),progress:getProgress(item,userId)[0]||null}; }
 export function listSources(userId) { return db.prepare('SELECT id,name,type,url,enabled,secret,options FROM sources WHERE user_id=? ORDER BY rowid').all(userId).map(({secret,options,...row})=>({...row,options:JSON.parse(options||'{}'),enabled:!!row.enabled,hasCredentials:Object.keys(decrypt(secret)).length>0})); }
 export function getDestination(id,userId) { const row=db.prepare('SELECT * FROM destinations WHERE id=? AND user_id=?').get(id,userId); if(!row) throw Object.assign(new Error('Nie znaleziono magazynu.'),{status:404}); return {...row,config:JSON.parse(row.config),credentials:decrypt(row.secret)}; }
 export function filenameFor(item,episode,quality='') { const label=[item.title,episode?`S${String(episode.season).padStart(2,'0')}E${String(episode.number).padStart(2,'0')}`:'',episode?.title || '',quality].filter(Boolean).join(' - ').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/g,'').slice(0,180); return (label||'Film')+'.mp4'; }

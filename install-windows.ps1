@@ -6,7 +6,7 @@ if(-not (Test-Path -LiteralPath '.env')){
     $cinemaRng=[Security.Cryptography.RandomNumberGenerator]::Create()
     try{$cinemaRng.GetBytes($cinemaRandom)}finally{$cinemaRng.Dispose()}
     $cinemaPassword=[Convert]::ToBase64String($cinemaRandom)
-    @("APP_PORT=8090","LAN_BIND=0.0.0.0","APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.9","INITIAL_ADMIN_PASSWORD=$cinemaPassword","COOKIE_SECURE=false","PUBLIC_ORIGIN=") | Set-Content -LiteralPath '.env' -Encoding ascii
+    @("APP_PORT=8090","LAN_BIND=0.0.0.0","APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.10","INITIAL_ADMIN_PASSWORD=$cinemaPassword","COOKIE_SECURE=false","PUBLIC_ORIGIN=") | Set-Content -LiteralPath '.env' -Encoding ascii
 }
 $cinemaArguments=@('compose','up','-d')
 if($Build){$cinemaArguments+='--build'}
