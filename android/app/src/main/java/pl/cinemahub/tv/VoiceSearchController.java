@@ -3,6 +3,7 @@ package pl.cinemahub.tv;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -27,6 +28,8 @@ final class VoiceSearchController implements VoiceSearchSession.Host {
     private AlertDialog dialog;
     private int activityRequest=-1,nextRequest=0x4000;
     private boolean permissionPending;
+    private boolean systemAway,ready;
+    private long levelUpdated;
     private String language=VoiceSearchLanguage.device(Locale.getDefault());
     private final Runnable timeout=()->session.error("timeout");
 
@@ -45,20 +48,28 @@ final class VoiceSearchController implements VoiceSearchSession.Host {
         String selected=VoiceSearchLanguage.resolve(requestedLanguage,Locale.getDefault());
         if(selected==null){listener.completed("voice_search_error",id,"invalid_language");return;}
         language=selected;
-        session.start(id,direct);
+        ready=false;
+        session.start(id,direct||VoiceSearchServices.direct(activity));
         if(session.active()){handler.removeCallbacks(timeout);handler.postDelayed(timeout,60000);}
     }
     void cancel(){session.cancel();}
-    void pause(){if(session.state()==VoiceSearchSession.State.LISTENING)cancel();}
+    void pause(){if(session.state()==VoiceSearchSession.State.SYSTEM)systemAway=true;else if(session.state()==VoiceSearchSession.State.LISTENING)cancel();}
+    void resume(){
+        if(!systemAway)return;
+        systemAway=false;
+        final String id=session.requestId();
+        // Some vendor voice windows return to the app without delivering an activity result.
+        handler.postDelayed(()->{if(session.state()==VoiceSearchSession.State.SYSTEM&&id.equals(session.requestId()))session.error("client");},300);
+    }
     void destroy(){cancel();handler.removeCallbacksAndMessages(null);}
     @Override public boolean launchSystem(){
         if(!systemAvailable())return false;
         activityRequest=nextRequest++;
         if(nextRequest>0x7fff)nextRequest=0x4000;
-        try{activity.startActivityForResult(intent(),activityRequest);return true;}
+        try{activity.startActivityForResult(Intent.createChooser(intent(),activity.getString(R.string.voice_title)),activityRequest);return true;}
         catch(RuntimeException error){activityRequest=-1;return false;}
     }
-    @Override public boolean recognitionAvailable(){try{return SpeechRecognizer.isRecognitionAvailable(activity);}catch(RuntimeException error){return false;}}
+    @Override public boolean recognitionAvailable(){try{return VoiceSearchServices.preferences(activity).getString("service","").isEmpty()?SpeechRecognizer.isRecognitionAvailable(activity):VoiceSearchServices.selected(activity)!=null;}catch(RuntimeException error){return false;}}
     @Override public boolean audioPermission(){return activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED;}
     @Override public void requestPermission(){permissionPending=true;activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},AUDIO_PERMISSION);}
     boolean permissionResult(int code,int[] results){
@@ -77,15 +88,17 @@ final class VoiceSearchController implements VoiceSearchSession.Host {
     private static String first(ArrayList<String> values){return values==null||values.isEmpty()?"":values.get(0);}
     @Override public void listen(){
         final String id=session.requestId();
+        final String serviceLabel=VoiceSearchServices.currentLabel(activity);
         try{
-            recognizer=SpeechRecognizer.createSpeechRecognizer(activity);
+            ComponentName selected=VoiceSearchServices.selected(activity);
+            recognizer=selected==null?SpeechRecognizer.createSpeechRecognizer(activity):SpeechRecognizer.createSpeechRecognizer(activity,selected);
             recognizer.setRecognitionListener(new RecognitionListener(){
                 private boolean current(){return session.state()==VoiceSearchSession.State.LISTENING&&id.equals(session.requestId());}
-                @Override public void onReadyForSpeech(Bundle data){if(current()&&dialog!=null)dialog.setMessage(activity.getString(R.string.voice_ready));}
+                @Override public void onReadyForSpeech(Bundle data){if(current()&&dialog!=null){ready=true;dialog.setMessage(activity.getString(R.string.voice_ready)+"\n\n"+serviceLabel);}}
                 @Override public void onBeginningOfSpeech(){}
-                @Override public void onRmsChanged(float value){}
+                @Override public void onRmsChanged(float value){if(current()&&ready&&dialog!=null&&android.os.SystemClock.uptimeMillis()-levelUpdated>=200){levelUpdated=android.os.SystemClock.uptimeMillis();dialog.setMessage(activity.getString(R.string.voice_ready)+"\n\n"+serviceLabel+"\n"+VoiceSearchServices.text("Poziom zgłaszany przez usługę: ","Level reported by the service: ")+String.format(Locale.getDefault(),"%.1f",value));}}
                 @Override public void onBufferReceived(byte[] buffer){} // Never retain or forward audio.
-                @Override public void onEndOfSpeech(){if(current()&&dialog!=null)dialog.setMessage(activity.getString(R.string.voice_processing));}
+                @Override public void onEndOfSpeech(){ready=false;if(current()&&dialog!=null)dialog.setMessage(activity.getString(R.string.voice_processing));}
                 @Override public void onError(int code){if(current())session.error(errorCode(code));}
                 @Override public void onResults(Bundle data){if(current())session.result(first(data==null?null:data.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)));}
                 @Override public void onPartialResults(Bundle data){}
@@ -113,6 +126,7 @@ final class VoiceSearchController implements VoiceSearchSession.Host {
         }
     }
     @Override public void release(){
+        ready=false;systemAway=false;
         handler.removeCallbacks(timeout);
         int request=activityRequest;activityRequest=-1;
         if(request!=-1)activity.finishActivity(request);

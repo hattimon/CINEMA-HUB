@@ -1,15 +1,21 @@
-# Wyszukiwanie głosowe — Android TV 1.3.9 / panel 1.3.13
+# Wyszukiwanie głosowe — Android TV 1.3.10 / panel 1.3.14
 
-Wydanie Android z wielojęzycznym rozpoznawaniem mowy. Podpis APK 1.3.9 jest zgodny z publicznym APK 1.3.7; versionCode wzrósł z 11 do 13. Testy automatyczne korzystają z symulowanych odpowiedzi usług mowy; nie potwierdzają działania mikrofonu Bluetooth ani jakości rozpoznawania. Test fizycznego Magcubic L018 pozostaje do wykonania; opis wydania jasno odróżnia testy automatyczne od rzeczywistego audio.
+Android TV 1.3.10 zawiera wielojęzyczne rozpoznawanie, wybór usługi mowy oraz test sygnału mikrofonu. Podpis APK jest zgodny z publicznym 1.3.9; versionCode wzrasta z 13 do 14. Testy automatyczne korzystają z symulowanych odpowiedzi usług mowy i nie potwierdzają działania mikrofonu Bluetooth ani jakości rozpoznawania na konkretnym urządzeniu.
+
+## Wybór usługi i pomiar mikrofonu
+
+Otwórz **MENU → Mikrofon i rozpoznawanie**. Wybierz systemowe okno rozpoznawania albo jedną z usług dostępnych w Cinema Hub. Wybór zapisuje się tylko dla Cinema Hub. Lista pokazuje usługi rozpoznawania mowy, a nie same syntezatory odczytujące tekst.
+
+**Sprawdź sygnał mikrofonu** uruchamia dziesięciosekundowy pomiar na żądanie użytkownika, po przyznaniu uprawnienia do mikrofonu. Wyświetla wejście audio i poziom sygnału. Nie zapisuje ani nie przesyła nagrania. Wstecz lub Zamknij kończy pomiar; przełączenie do Asystenta albo innej aplikacji zatrzymuje odczyt. Poziom zerowy oznacza brak sygnału w danej próbie i samodzielnie nie dowodzi blokady systemu.
 
 ## Uruchomienie
 
-1. Zaktualizuj panel serwera do przygotowanej wersji 1.3.13 i APK do 1.3.9 (`pl.cinemahub.tv`, versionCode 13). Zachowaj dotychczasowy wolumen `/data`, `.env`, adres serwera i dane aplikacji. Aktualizacja panelu wymaga przebudowania/aktualizacji kontenera, z zachowaniem dotychczasowych portów, wolumenów i zmiennych.
+1. Zainstaluj APK 1.3.10 (`pl.cinemahub.tv`, versionCode 14). Przyciski w panelu wymagają również serwera z obsługą głosu, dostępnego w lokalnym kontenerze 1.3.14. Zachowaj dotychczasowy wolumen `/data`, `.env`, adres serwera i dane aplikacji. Aktualizacja APK nie aktualizuje kontenera.
 2. Obok pola „Szukaj filmów i seriali” wybierz ikonę mikrofonu i naciśnij OK. Nie trzeba uruchamiać dyktowania Gboard.
 3. W oknie Androida powiedz np. „Pingwiny z Madagaskaru” po wybraniu języka polskiego albo „The Lord of the Rings” po wybraniu English. Po wyniku aplikacja wpisuje tekst do kontrolowanego pola React i uruchamia tę samą funkcję wyszukiwania co zatwierdzenie formularza. Wybrane źródła, filtry i sortowanie pozostają; numer strony wraca do 1.
 4. Wstecz lub Anuluj zamyka rozpoznawanie bez zmiany tekstu i uruchamiania wyszukiwania. Zaznaczenie wraca do mikrofonu.
 
-Pilot: prawo na końcu tekstu wybiera mikrofon; kolejne prawo wybiera Szukaj. Lewo wraca do pola. Góra/dół pozwalają opuścić pole i poruszać się po panelu. W oknach działają strzałki, OK i Wstecz. Kursor pozostaje opcją klienta dla urządzeń, które go potrzebują.
+Pilot: prawo na końcu tekstu wybiera mikrofon; kolejne prawo wybiera język, a następne Szukaj. Lewo wraca przez te przyciski do pola. Góra/dół pozwalają opuścić pole i poruszać się po panelu. W oknach działają strzałki, OK i Wstecz. Kursor pozostaje opcją klienta dla urządzeń, które go potrzebują.
 
 ## Język rozpoznawania / Speech language
 

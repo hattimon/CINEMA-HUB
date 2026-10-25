@@ -2,9 +2,11 @@
 
 Klient Android panelu z kontenera, pakiet `pl.cinemahub.tv`. Instaluje się obok Filman TV. Konta, katalog, źródła i postęp oglądania obsługuje serwer Cinema Hub.
 
-## Przygotowana wersja 1.3.9 — wyszukiwanie głosowe
+## Wersja 1.3.10 — wyszukiwanie głosowe i diagnostyka mikrofonu
 
-APK: [`CinemaHub-AndroidTV-v1.3.9.apk`](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.9/CinemaHub-AndroidTV-v1.3.9.apk), `versionCode 13`. Funkcja wymaga również panelu serwera 1.3.12. Wybierz pilotem ikonę mikrofonu obok wyszukiwarki i naciśnij OK. System rozpoznaje tytuł w wybranym języku; wynik uruchamia dotychczasowe wyszukiwanie z zachowaniem filtrów. Wstecz anuluje próbę. Gboard nie bierze udziału w tej funkcji.
+APK: [`CinemaHub-AndroidTV-v1.3.10.apk`](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.10/CinemaHub-AndroidTV-v1.3.10.apk), `versionCode 14`. Przycisk głosowy wymaga panelu serwera z obsługą tej funkcji, dostępnego w lokalnym kontenerze 1.3.14. Wybierz pilotem ikonę mikrofonu obok wyszukiwarki i naciśnij OK. Rozpoznany tytuł uruchamia dotychczasowe wyszukiwanie z zachowaniem filtrów. Wstecz anuluje próbę. Gboard nie bierze udziału w tej funkcji.
+
+**MENU → Mikrofon i rozpoznawanie** pozwala wybrać usługę rozpoznawania, ponownie wybrać systemowe okno mowy oraz sprawdzić uprawnienia i wejścia audio. Dziesięciosekundowy test pokazuje rzeczywisty poziom sygnału odczytywanego przez Cinema Hub, bez zapisywania lub wysyłania nagrań. Zerowy poziom samodzielnie nie potwierdza blokady firmware. [Opis wersji 1.3.10](../docs/RELEASE-ANDROID-1.3.10.md).
 
 Klient wybiera systemowe okno `RecognizerIntent`; w razie jego braku używa `SpeechRecognizer`, z uprawnieniem `RECORD_AUDIO` żądanym w czasie działania. Po błędzie można ręcznie wybrać „Spróbuj usługi w aplikacji”. Jeśli Android zarezerwował przycisk mikrofonu pilota dla Asystenta, używaj ikony ekranowej. Mikrofon Bluetooth musi być dostępny systemowej usłudze dla innych aplikacji; działanie w Asystencie nie jest gwarancją zgodności.
 

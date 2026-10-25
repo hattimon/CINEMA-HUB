@@ -1,4 +1,4 @@
-param([string[]]$Tasks = @(':app:assembleRelease', ':app:lintRelease'))
+param([string[]]$Tasks = @(':app:assembleRelease', ':app:lintRelease'), [switch]$Candidate)
 $ErrorActionPreference = 'Stop'
 $project = $PSScriptRoot
 $toolchain = [IO.Path]::GetFullPath((Join-Path $project '..\..\.toolchain'))
@@ -36,6 +36,10 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & "$env:JAVA_HOME\bin\java.exe" -cp $testClasses pl.cinemahub.tv.VoiceSearchLanguageTest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\javac.exe" -d $testClasses (Join-Path $project 'app\src\main\java\pl\cinemahub\tv\VoiceInputLevel.java') (Join-Path $project 'tests\VoiceInputLevelTest.java')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\java.exe" -cp $testClasses pl.cinemahub.tv.VoiceInputLevelTest
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Push-Location $project
 try {
     & (Join-Path $toolchain 'gradle\gradle-8.9\bin\gradle.bat') @Tasks --no-daemon
@@ -44,9 +48,12 @@ try {
     if ((Test-Path -LiteralPath $apk) -and ($Tasks -contains ':app:assembleRelease')) {
         & (Join-Path $env:ANDROID_HOME 'build-tools\35.0.0\apksigner.bat') verify $apk
         if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
-        $release = Join-Path $project '..\releases'
+        $versionMatch = [regex]::Match((Get-Content -LiteralPath (Join-Path $project 'app\build.gradle') -Raw), "versionName '([^']+)'")
+        if (-not $versionMatch.Success) { throw 'Android version was not found.' }
+        $androidVersion = $versionMatch.Groups[1].Value
+        $release = if ($Candidate) { Join-Path $project ('..\.private\android-candidates\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) } else { Join-Path $project '..\releases' }
         New-Item -ItemType Directory -Path $release -Force | Out-Null
-        $target = Join-Path $release 'CinemaHub-AndroidTV-v1.3.9.apk'
+        $target = Join-Path $release "CinemaHub-AndroidTV-v$androidVersion.apk"
         if (Test-Path -LiteralPath $target) {
             if ((Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) { throw 'An APK with this version already exists. Increment the version before distributing a different build.' }
         } else { Copy-Item -LiteralPath $apk -Destination $target }
