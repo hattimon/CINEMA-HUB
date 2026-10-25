@@ -1,10 +1,10 @@
-# Wyszukiwanie głosowe — Android TV 1.3.9 / panel 1.3.12
+# Wyszukiwanie głosowe — Android TV 1.3.9 / panel 1.3.13
 
 Wydanie Android z wielojęzycznym rozpoznawaniem mowy. Podpis APK 1.3.9 jest zgodny z publicznym APK 1.3.7; versionCode wzrósł z 11 do 13. Testy automatyczne korzystają z symulowanych odpowiedzi usług mowy; nie potwierdzają działania mikrofonu Bluetooth ani jakości rozpoznawania. Test fizycznego Magcubic L018 pozostaje do wykonania; opis wydania jasno odróżnia testy automatyczne od rzeczywistego audio.
 
 ## Uruchomienie
 
-1. Zaktualizuj panel serwera do przygotowanej wersji 1.3.12 i APK do 1.3.9 (`pl.cinemahub.tv`, versionCode 13). Zachowaj dotychczasowy wolumen `/data`, `.env`, adres serwera i dane aplikacji. Aktualizacja panelu wymaga przebudowania/aktualizacji kontenera, z zachowaniem dotychczasowych portów, wolumenów i zmiennych.
+1. Zaktualizuj panel serwera do przygotowanej wersji 1.3.13 i APK do 1.3.9 (`pl.cinemahub.tv`, versionCode 13). Zachowaj dotychczasowy wolumen `/data`, `.env`, adres serwera i dane aplikacji. Aktualizacja panelu wymaga przebudowania/aktualizacji kontenera, z zachowaniem dotychczasowych portów, wolumenów i zmiennych.
 2. Obok pola „Szukaj filmów i seriali” wybierz ikonę mikrofonu i naciśnij OK. Nie trzeba uruchamiać dyktowania Gboard.
 3. W oknie Androida powiedz np. „Pingwiny z Madagaskaru” po wybraniu języka polskiego albo „The Lord of the Rings” po wybraniu English. Po wyniku aplikacja wpisuje tekst do kontrolowanego pola React i uruchamia tę samą funkcję wyszukiwania co zatwierdzenie formularza. Wybrane źródła, filtry i sortowanie pozostają; numer strony wraca do 1.
 4. Wstecz lub Anuluj zamyka rozpoznawanie bez zmiany tekstu i uruchamiania wyszukiwania. Zaznaczenie wraca do mikrofonu.
@@ -65,7 +65,7 @@ Niektóre piloty udostępniają kanał mikrofonu wyłącznie oprogramowaniu prod
 
 | Objaw / kod | Działanie |
 | --- | --- |
-| Brak ikony | Sprawdź APK 1.3.9 i panel 1.3.12, odśwież panel; zaktualizuj systemowy WebView, jeśli nie obsługuje istniejącego mostu. |
+| Brak ikony | Sprawdź APK 1.3.9 i panel 1.3.13, odśwież panel; zaktualizuj systemowy WebView, jeśli nie obsługuje istniejącego mostu. |
 | `unavailable` | Włącz/zaktualizuj usługę rozpoznawania mowy w Androidzie; sprawdź, czy urządzenie ma okno rozpoznawania lub `RecognitionService`. |
 | `permission_denied` | Zezwól Cinema Hub na mikrofon w ustawieniach Androida; nie czyść danych aplikacji. |
 | `audio`, `no_speech`, `no_match` | Sprawdź parowanie i baterie pilota, globalny przełącznik mikrofonu Androida 12+, wykonaj próbę w Google Play i Cinema Hub. Porównaj okno systemowe z „Spróbuj usługi w aplikacji”. Sukces Asystenta nie dowodzi dostępu innych aplikacji. |
@@ -77,7 +77,7 @@ Niektóre piloty udostępniają kanał mikrofonu wyłącznie oprogramowaniu prod
 
 ## Test na Magcubic L018 / Android 14
 
-1. Zainstaluj APK jako aktualizację; sprawdź zachowanie konta, adresu i sesji. Zaktualizuj panel serwera do 1.3.12 i wybierz **MENU → Odśwież**. Nie kasuj wolumenu `/data` ani danych aplikacji.
+1. Zainstaluj APK jako aktualizację; sprawdź zachowanie konta, adresu i sesji. Zaktualizuj panel serwera do 1.3.13 i wybierz **MENU → Odśwież**. Nie kasuj wolumenu `/data` ani danych aplikacji.
 2. W ikonie języków wybierz Polski. Pilotem przejdź do pola, naciśnij prawo na końcu tekstu, wybierz mikrofon i OK. Powiedz **„Pingwiny z Madagaskaru”**. Warunkiem zaliczenia jest rzeczywiście rozpoznany tekst w polu i wyświetlenie standardowych wyników albo autentycznej informacji o braku pasujących treści z wybranych źródeł.
 3. Wybierz English (US), powiedz „The Lord of the Rings”, a potem sprawdź język urządzenia i inny zainstalowany język. Powtórz dla serialu. Ustaw filtr, sortowanie i wybrane źródła, przejdź na stronę 2; po mowie sprawdź zachowanie filtrów oraz powrót do strony 1.
 4. Uruchom mikrofon i anuluj Wstecz; tekst i wyszukiwanie nie powinny się zmienić. Powtórz 5 razy, także z podwójnym OK i przytrzymaniem klawisza. Sprawdź powrót zaznaczenia i brak wskaźnika mikrofonu po zakończeniu.

@@ -1,6 +1,6 @@
 # Instalacja kontenerowa
 
-Serwer 1.3.12 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
+Serwer 1.3.13 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
 
 ## Instalacja przez DCC
 
@@ -10,7 +10,7 @@ Opis i zrzuty aplikacji: **[hattimon.github.io/CINEMA-HUB](https://hattimon.gith
 
 ## Windows
 
-1. Pobierz i rozpakuj [paczkę serwera 1.3.12](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.12) albo sklonuj repo.
+1. Pobierz i rozpakuj [paczkę serwera 1.3.13](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.13) albo sklonuj repo.
 2. Otwórz PowerShell w katalogu Cinema Hub.
 3. Uruchom `.\install-windows.ps1`. Jeżeli polityka PowerShell blokuje plik, możesz dla tego uruchomienia użyć `powershell -ExecutionPolicy Bypass -File .\install-windows.ps1`.
 4. Otwórz `http://localhost:8090/`. Na TV wpisz adres IP komputera i port 8090.

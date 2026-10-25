@@ -1,6 +1,6 @@
 # Cinema Hub na Android TV
 
-Klient: **[CinemaHub-AndroidTV-v1.3.9.apk](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.9/CinemaHub-AndroidTV-v1.3.9.apk)**, `versionCode 13`. Android 6 lub nowszy; pakiet `pl.cinemahub.tv`. Wyszukiwanie głosowe wymaga także panelu serwera 1.3.12. Mikrofon pilota i jakość rozpoznawania wymagają rzeczywistego testu na Magcubic L018. Klient zawiera Media3/ExoPlayer i obsługę pilota; działanie mikrofonu, dekoderów i pilota zależy od firmware urządzenia.
+Klient: **[CinemaHub-AndroidTV-v1.3.9.apk](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.9/CinemaHub-AndroidTV-v1.3.9.apk)**, `versionCode 13`. Android 6 lub nowszy; pakiet `pl.cinemahub.tv`. Wyszukiwanie głosowe wymaga także panelu serwera 1.3.13. Mikrofon pilota i jakość rozpoznawania wymagają rzeczywistego testu na Magcubic L018. Klient zawiera Media3/ExoPlayer i obsługę pilota; działanie mikrofonu, dekoderów i pilota zależy od firmware urządzenia.
 
 ## Instalacja
 
@@ -14,7 +14,7 @@ APK 1.3.9 ma podpis zgodny z lokalnym wydaniem 1.3.6 oraz publicznym APK 1.3.7 (
 
 ## Aktualizacje aplikacji
 
-Nowa funkcja: [wyszukiwanie głosowe, diagnostyka i test Magcubic L018](VOICE-SEARCH.md). Wymaga przygotowanych wersji panelu 1.3.12 i Android TV 1.3.9.
+Nowa funkcja: [wyszukiwanie głosowe, diagnostyka i test Magcubic L018](VOICE-SEARCH.md). Wymaga przygotowanych wersji panelu 1.3.13 i Android TV 1.3.9.
 
 Cinema Hub sprawdza nowe wydanie po uruchomieniu i pyta, czy pobrać aktualizację. Ręczne sprawdzenie jest dostępne w **MENU → Sprawdź aktualizacje**. Po pobraniu APK aplikacja weryfikuje sumę SHA-256 i otwiera instalator Androida. Zatwierdź instalację na ekranie systemowym. Przy pierwszej aktualizacji włącz dla Cinema Hub opcję **Zezwalaj z tego źródła**; Android może poprosić o nią przed instalacją.
 
