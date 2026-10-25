@@ -44,6 +44,11 @@ async function fixture(browser,{mode='native',viewport={width:1280,height:720},t
   return {context,page,requests,errors,warnings};
 }
 async function emit(page,data){await page.evaluate(data=>window.voiceFixture.emit(data),data);}
+async function recognizedSearch(page,message,text){
+  // React renders the heading before its catalog effect sends the request.
+  const searched=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/catalog'&&response.request().method()==='POST'&&response.request().postDataJSON().query===text.replace(/[\u0000-\u001f\u007f\s]+/g,' ').trim());
+  await emit(page,{type:'voice_search_result',requestId:message.requestId,text});await searched;
+}
 async function start(page){await page.getByRole('button',{name:'Wyszukaj głosowo',exact:true}).click();await page.getByRole('dialog').waitFor();return page.evaluate(()=>window.voiceFixture.messages.filter(m=>m.type==='voice_search_start').at(-1));}
 
 test('Voice result uses the catalog search, preserves filters/source/sort and resets the page',browserTest,async()=>{
@@ -59,7 +64,7 @@ test('Voice result uses the catalog search, preserves filters/source/sort and re
     const count=requests.length;
     await emit(page,{type:'voice_search_result',requestId:'stale',text:'Zły wynik'});assert.equal(await page.getByRole('dialog').count(),1);
     await emit(page,'{invalid json');await emit(page,null);await emit(page,{type:'progress',playbackId:'player'});
-    await emit(page,{type:'voice_search_result',requestId:message.requestId,text:'  Pingwiny z\nMadagaskaru  '});
+    await recognizedSearch(page,message,'  Pingwiny z\nMadagaskaru  ');
     await page.getByRole('heading',{name:'Wyniki: Pingwiny z Madagaskaru'}).waitFor();
     await page.waitForFunction(()=>!document.querySelector('dialog[open]'));
     assert.equal(await page.getByPlaceholder('Szukaj filmów i seriali').inputValue(),'Pingwiny z Madagaskaru');
@@ -139,13 +144,13 @@ test('Speech language follows device or a persisted explicit choice and supports
     const choose=async language=>{await languageButton.click();const select=page.getByLabel('Język rozpoznawania / Speech language');await select.selectOption(language);await page.getByRole('button',{name:'Zapisz / Save',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('dialog[open]'));};
     assert.equal(await languageButton.getAttribute('title'),'Język: English (UK)');
     await choose('en-US');assert.equal(await page.evaluate(()=>window.voiceFixture.messages.filter(m=>m.type==='voice_search_start').length),0,'Choosing language does not activate microphone');
-    let message=await start(page);assert.equal(message.language,'en-US');await emit(page,{type:'voice_search_result',requestId:message.requestId,text:'The Lord of the Rings'});
+    let message=await start(page);assert.equal(message.language,'en-US');await recognizedSearch(page,message,'The Lord of the Rings');
     await page.getByRole('heading',{name:'Wyniki: The Lord of the Rings'}).waitFor();assert.equal(requests.at(-1).query,'The Lord of the Rings');
     await page.reload();await languageButton.waitFor();assert.equal(await languageButton.getAttribute('title'),'Język: English (US)');
     assert.equal(await page.evaluate(()=>window.CinemaHubVoice.start()),true);message=await page.evaluate(()=>window.voiceFixture.messages.filter(m=>m.type==='voice_search_start').at(-1));assert.equal(message.language,'en-US','Remote shortcut uses saved choice');
     await emit(page,{type:'voice_search_cancelled',requestId:message.requestId});await page.waitForFunction(()=>!document.querySelector('dialog[open]'));
     for(const [language,title] of [['de-DE','Das Leben der Anderen'],['ja-JP','千と千尋の神隠し'],['ar-SA','حكاية لعبة']]){
-      await choose(language);message=await start(page);assert.equal(message.language,language);await emit(page,{type:'voice_search_result',requestId:message.requestId,text:title});
+      await choose(language);message=await start(page);assert.equal(message.language,language);await recognizedSearch(page,message,title);
       await page.getByRole('heading',{name:'Wyniki: '+title}).waitFor();assert.equal(requests.at(-1).query,title);
     }
     await languageButton.click();await page.getByLabel('Język rozpoznawania / Speech language').selectOption('custom');
