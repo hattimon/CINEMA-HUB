@@ -1,0 +1,52 @@
+{
+  "version": "1.3.15",
+  "androidVersion": "1.3.11",
+  "build": {
+    "typescript": "passed",
+    "vite": "passed"
+  },
+  "tests": {
+    "windows": {
+      "passed": 62,
+      "failed": 0,
+      "skipped": 16
+    },
+    "linuxAmd64Container": {
+      "passed": 78,
+      "failed": 0,
+      "skipped": 0
+    },
+    "browserDefaultAutoplayPolicy": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "audio": {
+    "actualDecodedPCM": true,
+    "manualGain": [
+      250,
+      300
+    ],
+    "auto": "quiet up, ordinary unchanged, loud down",
+    "normalizer": "selected RMS reference in both directions",
+    "targetRangeDbFS": [
+      -30,
+      -12
+    ],
+    "defaultTargetDbFS": -21,
+    "restoredForNextFilm": true,
+    "survivesReload": true,
+    "independentUserVolume": true,
+    "isolatedAccounts": true
+  },
+  "limits": [
+    "RMS is a digital signal reference, not physical acoustic dB or LUFS.",
+    "Maximum positive gain is 300%.",
+    "Browsers require Web Audio support."
+  ],
+  "localWindows": {
+    "health": "ok",
+    "version": "1.3.15",
+    "persistentDataPreserved": true
+  }
+}

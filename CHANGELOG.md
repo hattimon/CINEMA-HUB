@@ -1,5 +1,13 @@
 # Historia wydań
 
+## Kontener 1.3.15 — poziom dźwięku w odtwarzaczu przeglądarkowym
+
+- 250% i 300%, AUTO oraz Normalizer dodane do menu przeglądarkowego na komputerze.
+- AUTO zachowuje normalne nagrania na 100%, wzmacnia ciche i ścisza nadmiernie głośne.
+- Normalizer wyrównuje RMS w obu kierunkach do wybranego poziomu od −30 do −12 dBFS, domyślnie −21 dBFS.
+- Osobny zapis ustawień konta, przywracanie od początku kolejnego filmu, łagodne zmiany wzmocnienia, ochrona przed przesterowaniem i zachowanie ręcznej regulacji głośności.
+- Android 1.3.11 i usługi głosowe zachowane. [Opis i aktualizacja](docs/RELEASE-1.3.15.md).
+
 ## Android 1.3.11 i kontener 1.3.14 — wdrożenie usług głosowych
 
 - Automatyczna usługa Google „Rozpoznawanie i synteza mowy”, języki i wyszukiwanie w wybranych źródłach.

@@ -123,6 +123,24 @@ test('Health and diagnostics report the container package version',async()=>{
   assert.equal(health.status,200);assert.equal(diagnostics.status,200);
   assert.equal(health.value.version,version);assert.equal(diagnostics.value.version,version);
 });
+test('Audio modes, 250/300% gain and the normalization target persist per account and reject invalid values',async()=>{
+  const original=(await request('/settings')).value,untouched=(await request('/settings',null,other)).value;
+  assert.equal(original.audioMode,'manual');assert.equal(original.normalizerTargetDb,-21);
+  try{
+    for(const volumeBoost of [250,300]){
+      const saved=await request('/settings',{volumeBoost,audioMode:'manual'},admin,'PATCH');assert.equal(saved.status,200);assert.equal(saved.value.volumeBoost,volumeBoost);
+    }
+    for(const audioMode of ['auto','normalizer'])for(const normalizerTargetDb of [-30,-24,-21,-12]){
+      const saved=await request('/settings',{audioMode,normalizerTargetDb},admin,'PATCH');assert.equal(saved.status,200);
+      const read=(await request('/settings')).value;assert.equal(read.audioMode,audioMode);assert.equal(read.normalizerTargetDb,normalizerTargetDb);assert.equal(read.volumeBoost,300);
+      assert.equal(read.theme,original.theme);assert.deepEqual(read.defaultSources,original.defaultSources);
+    }
+    const beforeInvalid=(await request('/settings')).value;
+    for(const patch of [{volumeBoost:400},{audioMode:'unknown'},{normalizerTargetDb:-31},{normalizerTargetDb:-11},{normalizerTargetDb:-21.5},{normalizerTargetDb:'-21'}])assert.equal((await request('/settings',patch,admin,'PATCH')).status,400);
+    assert.deepEqual((await request('/settings')).value,beforeInvalid);
+    assert.deepEqual((await request('/settings',null,other)).value,untouched);
+  }finally{assert.equal((await request('/settings',original,admin,'PUT')).status,200);}
+});
 
 test('Filman API preserves page order, separates recommendations and counts filtered and search pages',async()=>{
   const originalHTML=sourceBrowser.html,visits=[];

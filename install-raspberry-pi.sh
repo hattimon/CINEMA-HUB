@@ -4,7 +4,7 @@ cd "$(dirname "$0")"
 if [ ! -f .env ]; then
     umask 077
     cinema_password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
-    printf '%s\n' 'APP_PORT=9999' 'LAN_BIND=0.0.0.0' 'APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.14' "INITIAL_ADMIN_PASSWORD=$cinema_password" 'COOKIE_SECURE=false' 'PUBLIC_ORIGIN=' >.env
+    printf '%s\n' 'APP_PORT=9999' 'LAN_BIND=0.0.0.0' 'APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.15' "INITIAL_ADMIN_PASSWORD=$cinema_password" 'COOKIE_SECURE=false' 'PUBLIC_ORIGIN=' >.env
 fi
 case "${1:-}" in
     '') docker compose -f compose.pi.yaml up -d ;;
