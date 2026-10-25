@@ -40,6 +40,10 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & "$env:JAVA_HOME\bin\java.exe" -cp $testClasses pl.cinemahub.tv.VoiceInputLevelTest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\javac.exe" -d $testClasses (Join-Path $project 'app\src\main\java\pl\cinemahub\tv\AudioLevelRules.java') (Join-Path $project 'tests\AudioLevelRulesTest.java')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\java.exe" -cp $testClasses pl.cinemahub.tv.AudioLevelRulesTest
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Push-Location $project
 try {
     & (Join-Path $toolchain 'gradle\gradle-8.9\bin\gradle.bat') @Tasks --no-daemon

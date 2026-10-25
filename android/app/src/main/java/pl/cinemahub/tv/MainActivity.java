@@ -1,7 +1,7 @@
 package pl.cinemahub.tv;
 
 import android.Manifest;
-import android.media.audiofx.LoudnessEnhancer;
+import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.Effect;
 import androidx.media3.effect.Brightness;
 import androidx.media3.effect.Contrast;
@@ -38,6 +38,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.SslErrorHandler;
@@ -68,6 +69,9 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.DefaultTimeBar;
@@ -111,8 +115,10 @@ public class MainActivity extends Activity {
     private TextView nativeTimeText;
     private boolean scrubbing;
     private String nativeControlHint="",videoEffect="none",imageProfile="natural",appliedPicture="";
-    private int volumeBoost=100,boostSession;
-    private LoudnessEnhancer loudness;
+    private int volumeBoost=100;
+    private String audioMode=AudioLevelRules.MANUAL;
+    private AdaptiveAudioProcessor audioProcessor;
+    private boolean audioFormatNoticeSent;
     private boolean pictureDisabled;
     private JSONObject playbackRequest;
     private CrtOverlay crtOverlay;
@@ -147,8 +153,13 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        AppDiagnostics.install(this);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         preferences=getSharedPreferences("cinema-client",MODE_PRIVATE);
+        audioMode=preferences.getString("audio-mode",AudioLevelRules.MANUAL);
+        if(!AudioLevelRules.validMode(audioMode))audioMode=AudioLevelRules.MANUAL;
+        if(preferences.contains("audio-boost"))volumeBoost=preferences.getInt("audio-boost",100);
+        if(!AudioLevelRules.validBoost(volumeBoost))volumeBoost=100;
         server=preferences.getString("server",ServerAddress.DEFAULT);
         cursorMode=preferences.getBoolean("cursor",false);
         root=new FrameLayout(this);root.setBackgroundColor(Color.rgb(11,13,18));setContentView(root);
@@ -306,7 +317,7 @@ public class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView w,String address){return !allowed(address);}
             private boolean allowed(String address){if("about:blank".equals(address)||ServerAddress.owns(server,address))return true;Toast.makeText(MainActivity.this,"Ten adres jest poza wybranym serwerem Cinema Hub.",Toast.LENGTH_SHORT).show();return false;}
             @Override public void onPageStarted(WebView w,String address,android.graphics.Bitmap icon){if(w==web){cancelVoiceForNavigation();mainLoadFailed=false;}}
-            @Override public void onPageFinished(WebView w,String address){if(w==web&&!mainLoadFailed&&ServerAddress.owns(server,address)){if(errorView!=null){root.removeView(errorView);errorView=null;}CookieManager.getInstance().flush();immersive();}}
+            @Override public void onPageFinished(WebView w,String address){if(w==web&&!mainLoadFailed&&ServerAddress.owns(server,address)){if(errorView!=null){root.removeView(errorView);errorView=null;}CookieManager.getInstance().flush();w.evaluateJavascript(FileChooserGuard.INSTALL,null);immersive();}}
             @Override public void onReceivedError(WebView w,WebResourceRequest r,WebResourceError e){if(r.isForMainFrame()&&w==web){mainLoadFailed=true;showError("Brak połączenia z serwerem. Sprawdź adres, port i dostęp projektora do tej sieci.");}}
             @Override public void onReceivedHttpError(WebView w,WebResourceRequest r,WebResourceResponse response){if(r.isForMainFrame()&&w==web){mainLoadFailed=true;showError("Serwer odpowiedział błędem HTTP "+response.getStatusCode()+".");}}
             @Override public void onReceivedSslError(WebView w,SslErrorHandler h,SslError e){h.cancel();if(w==web){mainLoadFailed=true;showError("Serwer HTTPS ma nieprawidłowy certyfikat. Popraw certyfikat lub wpisz właściwy adres serwera w sieci lokalnej.");}}
@@ -315,7 +326,7 @@ public class MainActivity extends Activity {
         view.setWebChromeClient(new WebChromeClient(){
             @Override public void onShowCustomView(View v,CustomViewCallback callback){if(customView!=null){callback.onCustomViewHidden();return;}customView=v;customCallback=callback;root.addView(v,new FrameLayout.LayoutParams(-1,-1));menuButton.setVisibility(View.GONE);cursor.setVisibility(View.GONE);immersive();}
             @Override public void onHideCustomView(){hideCustom();}
-            @Override public boolean onShowFileChooser(WebView w,ValueCallback<Uri[]> callback,FileChooserParams params){if(fileChooser!=null)fileChooser.onReceiveValue(null);fileChooser=callback;Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("video/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,params.getMode()==FileChooserParams.MODE_OPEN_MULTIPLE);try{startActivityForResult(intent,10);}catch(Exception error){fileChooser.onReceiveValue(null);fileChooser=null;Toast.makeText(MainActivity.this,"Zainstaluj systemowy menedżer plików obsługujący wybór pliku.",Toast.LENGTH_LONG).show();}return true;}
+            @Override public boolean onShowFileChooser(WebView w,ValueCallback<Uri[]> callback,FileChooserParams params){return chooseLocalFile(w,callback,params);}
             @Override public boolean onCreateWindow(WebView w,boolean dialog,boolean gesture,android.os.Message message){if(!gesture||loginDialog!=null)return false;loginWeb=new WebView(MainActivity.this);configure(loginWeb);loginDialog=new Dialog(MainActivity.this);loginDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);loginDialog.setContentView(loginWeb);loginDialog.setOnDismissListener(d->{if(loginWeb!=null)loginWeb.destroy();loginWeb=null;loginDialog=null;CookieManager.getInstance().flush();});loginDialog.show();loginDialog.getWindow().setLayout(-1,-1);WebView.WebViewTransport transport=(WebView.WebViewTransport)message.obj;transport.setWebView(loginWeb);message.sendToTarget();return true;}
             @Override public void onCloseWindow(WebView w){if(w==loginWeb&&loginDialog!=null)loginDialog.dismiss();}
         });
@@ -349,11 +360,26 @@ public class MainActivity extends Activity {
     private void voiceCompleted(String type,String id,String value){
         JavaScriptReplyProxy reply=voiceReply;WebView source=voiceWeb;voiceReply=null;voiceWeb=null;
         if(reply==null||source!=web||web==null||!ServerAddress.owns(server,web.getUrl())||!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))return;
-        try{JSONObject result=new JSONObject().put("type",type).put("requestId",id);
+        try{JSONObject result=new JSONObject().put("type",type.equals("voice_search_keyboard")?"voice_search_cancelled":type).put("requestId",id);
             if(type.equals("voice_search_result"))result.put("text",value);
             else if(type.equals("voice_search_error"))result.put("code",value);
             reply.postMessage(result.toString());
         }catch(Exception ignored){}
+        // The deployed 1.3.14 web panel already understands cancelled requests.
+        // Close its modal first, then focus the existing search input for the TV IME.
+        if(type.equals("voice_search_keyboard"))handler.postDelayed(()->openKeyboardForVoice(source),450);
+    }
+    private void openKeyboardForVoice(WebView target){
+        if(target!=web||player!=null||customView!=null||loginDialog!=null||!ServerAddress.owns(server,target.getUrl()))return;
+        target.requestFocus();
+        target.evaluateJavascript("(()=>{const input=document.querySelector('.topbar .search-box input');if(!input)return false;input.focus();return document.activeElement===input;})()",focused->{
+            if(target!=web||!"true".equals(focused)){
+                Toast.makeText(this,"Otwórz wyszukiwarkę Cinema Hub, aby dyktować przez klawiaturę.",Toast.LENGTH_LONG).show();return;
+            }
+            InputMethodManager keyboard=(InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(keyboard!=null)keyboard.showSoftInput(target,InputMethodManager.SHOW_IMPLICIT);
+            Toast.makeText(this,"Na klawiaturze wybierz mikrofon Gboard. Przycisk pilota może uruchomić Asystenta.",Toast.LENGTH_LONG).show();
+        });
     }
     private void cancelVoiceForNavigation(){voiceReply=null;voiceWeb=null;if(voiceSearch!=null)voiceSearch.cancel();}
 
@@ -367,7 +393,18 @@ public class MainActivity extends Activity {
         HashMap<String,String> headers=new HashMap<>();String cookies=CookieManager.getInstance().getCookie(server);if(cookies!=null)headers.put("Cookie",cookies);
         DefaultHttpDataSource.Factory http=new DefaultHttpDataSource.Factory().setConnectTimeoutMs(20000).setReadTimeoutMs(25000).setDefaultRequestProperties(headers).setUserAgent(web.getSettings().getUserAgentString());
         DefaultMediaSourceFactory media=new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this,http));
-        player=new ExoPlayer.Builder(this).setMediaSourceFactory(media).setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(10000,30000,1500,3000).setBackBuffer(5000,false).build()).build();
+        // Attach PCM gain processing before prepare(), for every newly created ExoPlayer.
+        final AdaptiveAudioProcessor processor=new AdaptiveAudioProcessor();
+        processor.setLevel(audioMode,volumeBoost);
+        audioProcessor=processor;
+        audioFormatNoticeSent=false;
+        DefaultRenderersFactory renderers=new DefaultRenderersFactory(this){
+            @Override protected AudioSink buildAudioSink(Context context,boolean floatOutput,boolean playbackParams){
+                return new DefaultAudioSink.Builder(context).setAudioProcessors(new AudioProcessor[]{processor})
+                    .setEnableFloatOutput(false).setEnableAudioTrackPlaybackParams(playbackParams).build();
+            }
+        };
+        player=new ExoPlayer.Builder(this,renderers).setMediaSourceFactory(media).setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(10000,30000,1500,3000).setBackBuffer(5000,false).build()).build();
         player.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),true);
         playerLayer=new FrameLayout(this);playerLayer.setBackgroundColor(Color.BLACK);
         playerView=(PlayerView)LayoutInflater.from(this).inflate(R.layout.native_player_view,playerLayer,false);playerView.setFocusable(true);playerView.setFocusableInTouchMode(true);playerView.setPlayer(player);playerView.setUseController(false);playerView.setOnClickListener(v->togglePause());playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);playerLayer.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
@@ -378,7 +415,7 @@ public class MainActivity extends Activity {
         final ExoPlayer sessionPlayer=player;
         player.addAnalyticsListener(new AnalyticsListener(){@Override public void onAudioSessionIdChanged(AnalyticsListener.EventTime time,int id){if(player==sessionPlayer)applyVolumeBoost();}});
         player.addListener(new Player.Listener(){
-            @Override public void onPlaybackStateChanged(int state){if(player!=sessionPlayer)return;if(state==Player.STATE_READY){if(rejectShortVideo())return;sendProgress(false);}if(state==Player.STATE_ENDED)closePlayer(true,true);}
+            @Override public void onPlaybackStateChanged(int state){if(player!=sessionPlayer)return;if(state==Player.STATE_READY){if(rejectShortVideo())return;applyVolumeBoost();if(!audioFormatNoticeSent&&audioProcessor!=null&&!audioProcessor.supportsCurrentAudio()&&(!AudioLevelRules.MANUAL.equals(audioMode)||volumeBoost!=100)){audioFormatNoticeSent=true;JSONObject warning=event("notice");try{warning.put("message","Źródło audio omija przetwarzanie PCM. Wzmocnienie i normalizacja mogą być niedostępne.");}catch(Exception ignored){}post(warning);Toast.makeText(MainActivity.this,"Dźwięk tego źródła może omijać wzmocnienie.",Toast.LENGTH_LONG).show();}sendProgress(false);}if(state==Player.STATE_ENDED)closePlayer(true,true);}
             @Override public void onTimelineChanged(androidx.media3.common.Timeline timeline,int reason){if(player==sessionPlayer)rejectShortVideo();}
             @Override public void onIsPlayingChanged(boolean playing){if(player==sessionPlayer)sendProgress(false);}
             @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(player!=sessionPlayer)return;refreshNativeControls(!ready);sendProgress(false);}
@@ -399,7 +436,9 @@ public class MainActivity extends Activity {
         preferManualHost=data.optBoolean("preferManualHost",preferManualHost);
         playerFullscreen=data.optBoolean("fullscreen",playerFullscreen);
         String requested=data.optString("videoEffect",videoEffect);if(java.util.Arrays.asList("none","crt","crt-warm","crt-green").contains(requested))videoEffect=requested;
-        int boost=data.optInt("volumeBoost",volumeBoost);if(boost==100||boost==150||boost==200)volumeBoost=boost;
+        // Local Android audio selections take precedence over the 1.3.14 server's 100/150/200 values.
+        int boost=data.optInt("volumeBoost",volumeBoost);
+        if(!preferences.contains("audio-boost")&&AudioLevelRules.validBoost(boost))volumeBoost=boost;
         if(crtOverlay!=null)crtOverlay.setEffect(videoEffect);
         String profile=data.optString("imageProfile",imageProfile);if(java.util.Arrays.asList("natural","projector","cinema","soft").contains(profile))imageProfile=profile;applyPictureProfile();applyVolumeBoost();
         if(nativeAutoplay!=null)nativeAutoplay.setSelected(autoAdvance);
@@ -475,12 +514,14 @@ public class MainActivity extends Activity {
     private void updatePlayerLayout(){if(playerView==null||nativeMenu==null||nativeTitle==null)return;FrameLayout.LayoutParams layout=new FrameLayout.LayoutParams(-1,-1);if(!playerFullscreen&&!webPanel){layout.topMargin=nativeTitle.getMeasuredHeight()>0?nativeTitle.getMeasuredHeight():dp(56);layout.bottomMargin=(nativeMenu.getMeasuredHeight()>0?nativeMenu.getMeasuredHeight():dp(164))+dp(8);}playerView.setLayoutParams(layout);if(crtOverlay!=null)crtOverlay.setLayoutParams(new FrameLayout.LayoutParams(layout));}
 
     private void postValue(String type,String value){JSONObject result=event(type);try{result.put("value",value);}catch(Exception ignored){}post(result);}
-    private void applyVolumeBoost(){
-        if(player==null)return;int session=player.getAudioSessionId();
-        if(loudness!=null&&(volumeBoost==100||boostSession!=session)){loudness.release();loudness=null;boostSession=0;}
-        if(volumeBoost==100||session<=0)return;
-        try{if(loudness==null){loudness=new LoudnessEnhancer(session);boostSession=session;}loudness.setTargetGain((int)Math.round(2000*Math.log10(volumeBoost/100.0)));if(loudness.setEnabled(true)!=0)throw new IllegalStateException("Audio effect unavailable");}
-        catch(RuntimeException error){if(loudness!=null){loudness.release();loudness=null;}boostSession=0;volumeBoost=100;postValue("boost","100");Toast.makeText(this,"To urządzenie nie udostępnia wzmocnienia dźwięku dla tego wyjścia audio.",Toast.LENGTH_LONG).show();}
+    private void applyVolumeBoost(){if(audioProcessor!=null)audioProcessor.setLevel(audioMode,volumeBoost);}
+    private void selectAudioMode(String mode,int boost){
+        if(!AudioLevelRules.validMode(mode)||!AudioLevelRules.validBoost(boost))return;
+        audioMode=mode;volumeBoost=boost;
+        preferences.edit().putString("audio-mode",mode).putInt("audio-boost",boost).apply();
+        applyVolumeBoost();
+        // The deployed server only accepts these three manual levels.
+        if(AudioLevelRules.MANUAL.equals(mode)&&boost<=200)postValue("boost",String.valueOf(boost));
     }
     private void applyPictureProfile(){
         if(player==null)return;String key=videoEffect+":"+imageProfile;if(key.equals(appliedPicture))return;
@@ -534,8 +575,13 @@ public class MainActivity extends Activity {
     private GradientDrawable playbackPanelBackground(int color,int stroke){GradientDrawable shape=new GradientDrawable();shape.setColor(color);shape.setCornerRadius(dp(9));if(stroke!=0)shape.setStroke(dp(1),stroke);return shape;}
     private StateListDrawable playbackOptionBackground(){StateListDrawable states=new StateListDrawable();states.addState(new int[]{android.R.attr.state_focused},playbackPanelBackground(0xFF38324F,0xFFBAA2FF));states.addState(new int[]{android.R.attr.state_selected},playbackPanelBackground(0xFF29243A,0xFF8F79D8));states.addState(new int[]{},playbackPanelBackground(0xFF202535,0xFF3A4358));return states;}
     private void addPlaybackPanelSection(LinearLayout content,String title){TextView heading=new TextView(this);heading.setText(title);heading.setTextColor(0xFFBAA2FF);heading.setTextSize(14);heading.setLetterSpacing(.03f);heading.setPadding(dp(2),dp(10),dp(2),dp(5));content.addView(heading,new LinearLayout.LayoutParams(-1,-2));}
-    private void addPlaybackPanelChoice(LinearLayout content,String group,String value,String label,Runnable action){String key=group+":"+value;Button option=new Button(this);option.setAllCaps(false);option.setTextSize(14);option.setTextColor(Color.WHITE);option.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);option.setPadding(dp(15),0,dp(12),0);option.setMinHeight(dp(46));option.setBackground(playbackOptionBackground());option.setTag(key);option.setOnClickListener(view->{action.run();refreshPlaybackPanelChoices();focusPlaybackPanelChoice(key);});LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(46));params.bottomMargin=dp(6);content.addView(option,params);playbackPanelOptions.put(key,option);playbackPanelLabels.put(key,label);}
-    private void refreshPlaybackPanelChoices(){for(java.util.Map.Entry<String,Button> entry:playbackPanelOptions.entrySet()){String key=entry.getKey();int split=key.indexOf(':');String group=key.substring(0,split),value=key.substring(split+1);boolean selected=group.equals("profile")?imageProfile.equals(value):group.equals("effect")?videoEffect.equals(value):group.equals("boost")&&String.valueOf(volumeBoost).equals(value);Button button=entry.getValue();String label=playbackPanelLabels.get(key);if(label==null)label=value;button.setSelected(selected);button.setText((selected?"✓   ":"      ")+label);button.setContentDescription(label+(selected?", wybrane":""));}}
+    private void addPlaybackPanelChoice(LinearLayout content,String group,String value,String label,Runnable action){String key=group+":"+value;Button option=new Button(this);option.setAllCaps(false);option.setText(label);option.setTextSize(14);option.setTextColor(Color.WHITE);option.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);option.setPadding(dp(15),0,dp(12),0);option.setMinHeight(dp(46));option.setBackground(playbackOptionBackground());
+        // Some Android TV GPU drivers show the button backgrounds on the first frame,
+        // but omit native button glyphs until the button changes selection/focus.
+        // Render these small text surfaces in software, independent of video decoding.
+        option.setLayerType(View.LAYER_TYPE_SOFTWARE,null);
+        option.setTag(key);option.setOnClickListener(view->{action.run();refreshPlaybackPanelChoices();focusPlaybackPanelChoice(key);});LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(46));params.bottomMargin=dp(6);content.addView(option,params);playbackPanelOptions.put(key,option);playbackPanelLabels.put(key,label);}
+    private void refreshPlaybackPanelChoices(){for(java.util.Map.Entry<String,Button> entry:playbackPanelOptions.entrySet()){String key=entry.getKey();int split=key.indexOf(':');String group=key.substring(0,split),value=key.substring(split+1);boolean selected=group.equals("profile")?imageProfile.equals(value):group.equals("effect")?videoEffect.equals(value):group.equals("boost")?AudioLevelRules.MANUAL.equals(audioMode)&&String.valueOf(volumeBoost).equals(value):group.equals("audio")&&audioMode.equals(value);Button button=entry.getValue();String label=playbackPanelLabels.get(key);if(label==null)label=value;button.setSelected(selected);button.setText((selected?"✓   ":"      ")+label);button.setContentDescription(label+(selected?", wybrane":""));}}
     private void focusPlaybackPanelChoice(String key){Button button=playbackPanelOptions.get(key);if(button!=null)button.post(()->{if(button.isShown())button.requestFocus();});}
     private void closePlaybackEffectsPanel(){if(playbackEffectsDialog!=null&&playbackEffectsDialog.isShowing())playbackEffectsDialog.dismiss();}
     private void showPlaybackMenu(){
@@ -545,8 +591,12 @@ public class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);addPlaybackPanelSection(content,"Korekcja obrazu");
         String[] profiles={"natural","projector","cinema","soft"},profileLabels={"Naturalny","Projektor — jaśniejszy","Kino — większy kontrast","Łagodne SD"};for(int i=0;i<profiles.length;i++){final String selected=profiles[i];addPlaybackPanelChoice(content,"profile",selected,profileLabels[i],()->{imageProfile=selected;applyPictureProfile();postValue("profile",imageProfile);});}
         addPlaybackPanelSection(content,"Efekt retro");String[] effects={"none","crt","crt-warm","crt-green"},effectLabels={"Bez efektu","CRT klasyczny","CRT ciepły","Zielony kineskop"};for(int i=0;i<effects.length;i++){final String selected=effects[i];addPlaybackPanelChoice(content,"effect",selected,effectLabels[i],()->{videoEffect=selected;if(crtOverlay!=null)crtOverlay.setEffect(videoEffect);applyPictureProfile();postValue("effect",videoEffect);});}
-        addPlaybackPanelSection(content,"Wzmocnienie dźwięku");int[] boosts={100,150,200};String[] boostLabels={"Normalnie — 100%","150%","200%"};for(int i=0;i<boosts.length;i++){final int selected=boosts[i];addPlaybackPanelChoice(content,"boost",String.valueOf(selected),boostLabels[i],()->{volumeBoost=selected;applyVolumeBoost();postValue("boost",String.valueOf(volumeBoost));});}
+        addPlaybackPanelSection(content,"Wzmocnienie dźwięku");int[] boosts={100,150,200,250,300};String[] boostLabels={"Normalnie — 100%","150%","200%","250%","300%"};for(int i=0;i<boosts.length;i++){final int selected=boosts[i];addPlaybackPanelChoice(content,"boost",String.valueOf(selected),boostLabels[i],()->selectAudioMode(AudioLevelRules.MANUAL,selected));}
+        addPlaybackPanelChoice(content,"audio","auto","AUTO — wyrównuj ciche i głośne filmy",()->selectAudioMode(AudioLevelRules.AUTO,volumeBoost));
+        addPlaybackPanelChoice(content,"audio","normalizer","Normalizer — stały poziom odcinków",()->selectAudioMode(AudioLevelRules.NORMALIZER,volumeBoost));
         Button retry=new Button(this);retry.setText("Ponów odtwarzanie");retry.setTextColor(Color.WHITE);retry.setAllCaps(false);retry.setBackground(playbackOptionBackground());retry.setOnClickListener(view->{closePlaybackEffectsPanel();post(event("retry"));});LinearLayout.LayoutParams retryParams=new LinearLayout.LayoutParams(-1,dp(46));retryParams.topMargin=dp(14);content.addView(retry,retryParams);scroll.addView(content);panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        // Populate all labels and selected checkmarks before the dialog first renders.
+        refreshPlaybackPanelChoices();
         Dialog dialog=new Dialog(this);playbackEffectsDialog=dialog;dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);dialog.setContentView(panel);dialog.setCanceledOnTouchOutside(true);dialog.setOnDismissListener(ignored->{playbackEffectsDialog=null;playbackPanelOptions.clear();playbackPanelLabels.clear();});dialog.show();Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams params=window.getAttributes();params.dimAmount=0f;params.gravity=Gravity.RIGHT|Gravity.CENTER_VERTICAL;int screenWidth=getResources().getDisplayMetrics().widthPixels,screenHeight=getResources().getDisplayMetrics().heightPixels;params.width=Math.min(screenWidth,Math.min(dp(560),Math.max(dp(300),screenWidth*32/100)));params.height=Math.min(screenHeight,Math.min(dp(740),screenHeight*70/100));params.x=dp(18);window.setAttributes(params);window.setWindowAnimations(R.style.PlaybackPanelWindowAnimations);}focusPlaybackPanelChoice("profile:"+imageProfile);
     }
 
@@ -578,23 +628,46 @@ public class MainActivity extends Activity {
     private JSONObject event(String type){JSONObject value=new JSONObject();try{value.put("type",type);value.put("playbackId",playbackId);}catch(Exception ignored){}return value;}
     private void post(JSONObject value){if(playerReply!=null&&WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))try{playerReply.postMessage(value.toString());}catch(Exception ignored){}}
     private void sendProgress(boolean completed){if(player==null||player.getDuration()<60000)return;JSONObject value=event("progress");try{value.put("position",player.getCurrentPosition()/1000.0);value.put("duration",player.getDuration()/1000.0);value.put("playing",player.isPlaying());value.put("buffering",player.getPlayWhenReady()&&player.getPlaybackState()==Player.STATE_BUFFERING);value.put("completed",completed);}catch(Exception ignored){}post(value);}
-    private void closePlayer(boolean notify,boolean ended){if(player==null)return;if(!preservePlaybackEffectsPanel)closePlaybackEffectsPanel();sendProgress(ended);JSONObject closed=event("closed");try{closed.put("ended",ended);}catch(Exception ignored){}handler.removeCallbacks(progressTick);handler.removeCallbacks(timelineTick);handler.removeCallbacks(hideNativeOverlay);if(loudness!=null){loudness.release();loudness=null;}boostSession=0;playbackRequest=null;appliedPicture="";crtOverlay=null;nativeControlHint="";ExoPlayer old=player;player=null;if(playerView!=null)playerView.setPlayer(null);old.release();if(playerLayer!=null)root.removeView(playerLayer);playerLayer=null;playerView=null;nativeTitle=null;nativeActions=null;nativeAutoplay=null;nativeHost=null;nativeSources=null;nativePause=null;nativeFullscreen=null;nativeMenu=null;nativeTimeBar=null;nativeTimeText=null;scrubbing=false;webPanel=false;pausedByLifecycle=false;if(notify)post(closed);playerReply=null;playbackId=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);if(web!=null)web.requestFocus();immersive();}
+    private void closePlayer(boolean notify,boolean ended){if(player==null)return;if(!preservePlaybackEffectsPanel)closePlaybackEffectsPanel();sendProgress(ended);JSONObject closed=event("closed");try{closed.put("ended",ended);}catch(Exception ignored){}handler.removeCallbacks(progressTick);handler.removeCallbacks(timelineTick);handler.removeCallbacks(hideNativeOverlay);playbackRequest=null;appliedPicture="";crtOverlay=null;nativeControlHint="";ExoPlayer old=player;player=null;audioProcessor=null;if(playerView!=null)playerView.setPlayer(null);old.release();if(playerLayer!=null)root.removeView(playerLayer);playerLayer=null;playerView=null;nativeTitle=null;nativeActions=null;nativeAutoplay=null;nativeHost=null;nativeSources=null;nativePause=null;nativeFullscreen=null;nativeMenu=null;nativeTimeBar=null;nativeTimeText=null;scrubbing=false;webPanel=false;pausedByLifecycle=false;if(notify)post(closed);playerReply=null;playbackId=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);if(web!=null)web.requestFocus();immersive();}
     private void hideCustom(){if(customView==null)return;root.removeView(customView);customView=null;if(customCallback!=null)customCallback.onCustomViewHidden();customCallback=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);immersive();}
 
     private void editServer(){EditText input=new EditText(this);input.setSingleLine(true);input.setText(server);input.setHint("192.168.11.20:9999 lub https://twoje-kino.pl");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Adres serwera Cinema Hub").setMessage("Wpisz IP z portem lub pełny adres panelu kontenera.").setView(input).setPositiveButton("Połącz",null).setNeutralButton("Pi :9999",(d,w)->{server=ServerAddress.DEFAULT;saveServer();createWeb();}).setNegativeButton("Anuluj",null).create();dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{String address=ServerAddress.normalize(input.getText().toString());server=address;saveServer();dialog.dismiss();createWeb();}catch(IllegalArgumentException error){input.setError(error.getMessage());}}));dialog.show();}
     private void saveServer(){preferences.edit().putString("server",server).putBoolean("configured",true).apply();}
-    private void menu(){String[] entries={"Wróć do panelu","Biblioteka","Odśwież","Adres IP / URL serwera",cursorMode?"Pilot: przełącz na wybór przycisków":"Pilot: włącz kursor","Pobrania Android","Sprawdź aktualizacje","Mikrofon i rozpoznawanie","Zamknij aplikację"};new AlertDialog.Builder(this).setTitle("Cinema Hub · "+server).setItems(entries,(d,index)->{if(index==1){closePlayer(true,false);if(web!=null)web.loadUrl(server);}if(index==2){if(web!=null)web.reload();else createWeb();}if(index==3)editServer();if(index==4){cursorMode=!cursorMode;preferences.edit().putBoolean("cursor",cursorMode).apply();cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);web.requestFocus();}if(index==5)try{startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));}catch(Exception error){Toast.makeText(this,"Otwórz folder Download w menedżerze plików.",Toast.LENGTH_LONG).show();}if(index==6)checkForUpdates(true);if(index==7){if(player==null&&customView==null)voiceDiagnostics.show();else Toast.makeText(this,"Zamknij odtwarzacz przed testem mikrofonu.",Toast.LENGTH_LONG).show();}if(index==8)finish();}).show();}
+    private void menu(){String[] entries={"Wróć do panelu","Biblioteka","Odśwież","Adres IP / URL serwera",cursorMode?"Pilot: przełącz na wybór przycisków":"Pilot: włącz kursor","Pobrania Android","Sprawdź aktualizacje","Mikrofon i rozpoznawanie","Asystent Google — wyłącz / włącz ręcznie","Zamknij aplikację"};new AlertDialog.Builder(this).setTitle("Cinema Hub · "+server).setItems(entries,(d,index)->{if(index==1){closePlayer(true,false);if(web!=null)web.loadUrl(server);}if(index==2){if(web!=null)web.reload();else createWeb();}if(index==3)editServer();if(index==4){cursorMode=!cursorMode;preferences.edit().putBoolean("cursor",cursorMode).apply();cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);web.requestFocus();}if(index==5)try{startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));}catch(Exception error){Toast.makeText(this,"Otwórz folder Download w menedżerze plików.",Toast.LENGTH_LONG).show();}if(index==6)checkForUpdates(true);if(index==7){if(player==null&&customView==null)voiceDiagnostics.show();else Toast.makeText(this,"Zamknij odtwarzacz przed testem mikrofonu.",Toast.LENGTH_LONG).show();}if(index==8)showAssistantSettings();if(index==9)finish();}).show();}
+    private void showAssistantSettings(){new AssistantControls(this).show();}
     private void showError(String message){if(errorView!=null)root.removeView(errorView);LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setGravity(Gravity.CENTER);panel.setPadding(dp(45),dp(30),dp(45),dp(30));panel.setBackgroundColor(Color.rgb(11,13,18));TextView title=new TextView(this);title.setText("Cinema Hub");title.setTextColor(Color.rgb(162,138,255));title.setTextSize(28);panel.addView(title);TextView description=new TextView(this);description.setText(message+"\n\n"+server);description.setTextColor(Color.WHITE);description.setTextSize(17);description.setPadding(0,dp(20),0,dp(20));panel.addView(description);Button retry=new Button(this);retry.setText("Ponów");retry.setOnClickListener(v->createWeb());panel.addView(retry);Button settings=new Button(this);settings.setText("Zmień adres serwera");settings.setOnClickListener(v->editServer());panel.addView(settings);root.addView(panel,new FrameLayout.LayoutParams(-1,-1));errorView=panel;retry.requestFocus();}
 
     private void download(String address,String agent,String disposition,String mime){if(!ServerAddress.isDownload(server,address)){Toast.makeText(this,"Można zapisać wyłącznie film ręcznie wybrany w Cinema Hub.",Toast.LENGTH_LONG).show();return;}if(Build.VERSION.SDK_INT<29&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){pendingDownload=new String[]{address,agent,disposition,mime};requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},11);return;}try{String name=URLUtil.guessFileName(address,disposition,mime);if(disposition!=null){int at=disposition.toLowerCase(Locale.ROOT).indexOf("filename*=utf-8''");if(at>=0)name=URLDecoder.decode(disposition.substring(at+17).split(";")[0].replace("\"",""),"UTF-8");}name=name.replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]","_");int dot=name.lastIndexOf('.');String ext=dot>0?name.substring(dot):".mp4",label=dot>0?name.substring(0,dot):name;while(label.getBytes("UTF-8").length>180)label=label.substring(0,label.length()-1);String stamp=new SimpleDateFormat("yyyyMMdd-HHmmss",Locale.ROOT).format(new java.util.Date());name=label+" - "+stamp+ext;DownloadManager.Request request=new DownloadManager.Request(Uri.parse(address)).setTitle(name).setDescription("Ręczny zapis filmu z Cinema Hub").setMimeType(mime).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED).setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,name);String cookies=CookieManager.getInstance().getCookie(server);if(cookies!=null)request.addRequestHeader("Cookie",cookies);request.addRequestHeader("User-Agent",agent);((DownloadManager)getSystemService(DOWNLOAD_SERVICE)).enqueue(request);Toast.makeText(this,"Dodano do pobrań Android: "+name,Toast.LENGTH_LONG).show();}catch(Exception error){Toast.makeText(this,"Nie można rozpocząć zapisu na urządzeniu. Sprawdź wolne miejsce i systemową aplikację Pobrania.",Toast.LENGTH_LONG).show();}}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(voiceDiagnostics!=null&&voiceDiagnostics.permissionResult(code,results))return;if(voiceSearch!=null&&voiceSearch.permissionResult(code,results))return;if(code==11&&pendingDownload!=null){String[] request=pendingDownload;pendingDownload=null;if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)download(request[0],request[1],request[2],request[3]);}}
     @Override protected void onActivityResult(int code,int result,Intent data){super.onActivityResult(code,result,data);if(voiceSearch!=null&&voiceSearch.activityResult(code,result,data))return;if(code==10&&fileChooser!=null){fileChooser.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));fileChooser=null;}}
 
+    boolean chooseLocalFile(WebView source,ValueCallback<Uri[]> callback,WebChromeClient.FileChooserParams params){
+        if(source!=web||!ServerAddress.owns(server,source.getUrl())||fileChooser!=null){AppDiagnostics.event(this,"files.rejected_context");callback.onReceiveValue(null);return true;}
+        fileChooser=callback;
+        source.evaluateJavascript(FileChooserGuard.CONSUME,allowed->{
+            if(fileChooser!=callback)return;
+            if(source!=web||isFinishing()||isDestroyed()||!"true".equals(allowed)){
+                AppDiagnostics.event(this,"files.rejected_no_action");fileChooser=null;callback.onReceiveValue(null);return;
+            }
+            Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("video/*").addCategory(Intent.CATEGORY_OPENABLE)
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE,params.getMode()==WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
+            try{AppDiagnostics.event(this,"files.open_document");startActivityForResult(intent,10);}catch(RuntimeException error){AppDiagnostics.event(this,"files.no_document_handler");fileChooser=null;callback.onReceiveValue(null);Toast.makeText(this,"Zainstaluj systemowy menedżer plików obsługujący wybór pliku.",Toast.LENGTH_LONG).show();}
+        });
+        return true;
+    }
+
     private void moveCursor(){if(web==null||cursor==null)return;cursorX=Math.max(2,Math.min(root.getWidth()-dp(22),cursorX));cursorY=Math.max(2,Math.min(root.getHeight()-dp(22),cursorY));cursor.setTranslationX(cursorX);cursor.setTranslationY(cursorY);}
+    void startVoiceFromAssistantGuard(){
+        if(isFinishing()||isDestroyed()||player!=null||customView!=null||loginDialog!=null||web==null||!ServerAddress.owns(server,web.getUrl()))return;
+        if(voiceSearch==null||voiceSearch.busy())return;
+        web.evaluateJavascript("!!(window.CinemaHubVoice&&window.CinemaHubVoice.start())",result->{
+            if(!"true".equals(result))Toast.makeText(this,"Otwórz wyszukiwarkę Cinema Hub, aby użyć mikrofonu.",Toast.LENGTH_LONG).show();
+        });
+    }
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean keyDown=event.getAction()==KeyEvent.ACTION_DOWN;
         if((key==KeyEvent.KEYCODE_SEARCH||key==KeyEvent.KEYCODE_VOICE_ASSIST||key==KeyEvent.KEYCODE_ASSIST)&&player==null&&customView==null&&loginDialog==null&&web!=null&&ServerAddress.owns(server,web.getUrl())){
-            if(keyDown&&event.getRepeatCount()==0&&!voiceSearch.busy())web.evaluateJavascript("!!(window.CinemaHubVoice&&window.CinemaHubVoice.start())",result->{if(!"true".equals(result))Toast.makeText(this,"Wyszukiwanie głosowe wymaga aktualnego panelu Cinema Hub i otwartej wyszukiwarki.",Toast.LENGTH_LONG).show();});
+            if(keyDown&&event.getRepeatCount()==0)startVoiceFromAssistantGuard();
             return true;
         }
         if(player!=null&&!webPanel){
@@ -615,7 +688,7 @@ public class MainActivity extends Activity {
             if(keyDown&&RemoteNavigation.repeatAllowed(remoteKey,event.getRepeatCount())){
                 final WebView target=web;
                 final KeyEvent original=new KeyEvent(event),released=KeyEvent.changeAction(original,KeyEvent.ACTION_UP);
-                target.evaluateJavascript("!!(window.CinemaHubTV&&typeof window.CinemaHubTV.key==='function'&&window.CinemaHubTV.key("+JSONObject.quote(remoteKey)+"))",result->{
+                target.evaluateJavascript(FileChooserGuard.remoteKeyScript(remoteKey),result->{
                     if(target==web&&!"true".equals(result)){target.dispatchKeyEvent(original);target.dispatchKeyEvent(released);}
                 });
             }

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="assistant_guard_description">Opcjonalnie blokuje przycisk Asystenta, jeśli Android udostępnia jego zdarzenia usłudze dostępności. Działa tylko podczas korzystania z Cinema Hub. Nie odczytuje ekranu ani mowy.</string>
+</resources>

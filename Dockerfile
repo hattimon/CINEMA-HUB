@@ -14,8 +14,8 @@ COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && mkdir -p /data && chown node:node /data
 COPY server ./server
 COPY ops/start.sh ./ops/start.sh
+COPY releases/CinemaHub-AndroidTV-v1.3.11.apk ./clients/CinemaHub-AndroidTV-v1.3.11.apk
 COPY --from=frontend /app/dist ./dist
-COPY releases/CinemaHub-AndroidTV-v1.3.6.apk ./clients/CinemaHub-AndroidTV-v1.3.6.apk
 USER node
 EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD node -e "fetch('http://127.0.0.1:8090/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

@@ -1,5 +1,14 @@
 # Historia wydań
 
+## Android 1.3.11 i kontener 1.3.14 — wdrożenie usług głosowych
+
+- Automatyczna usługa Google „Rozpoznawanie i synteza mowy”, języki i wyszukiwanie w wybranych źródłach.
+- Możliwość ręcznego wyłączenia i ponownego włączenia Asystenta Google z menu; usunięcie eksperymentalnej blokady i zbędnych wariantów rozpoznawania.
+- Menu Androida: stosowanie zapisanego wzmocnienia od początku filmu, 250%, 300%, AUTO i Normalizer, poprawki etykiet i niechcianego okna plików.
+- Panel, instalatory i aktualny dołączony APK w kontenerze 1.3.14 dla Windows i Raspberry Pi; zachowanie kont, konfiguracji, IPTV i danych.
+
+[Android 1.3.11](docs/RELEASE-ANDROID-1.3.11.md) · [Kontener — zmiany od 1.3.10](docs/RELEASE-1.3.14.md).
+
 ## Kontener 1.3.13 — stabilna weryfikacja wyszukiwania głosowego
 
 - Testy przeglądarkowe czekają na rzeczywiste zapytanie katalogu po wyniku rozpoznawania. Usuwa to zależność od szybkości planowania efektów React, ujawnioną przez Linux amd64 i ARM64.

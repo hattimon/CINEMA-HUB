@@ -92,6 +92,9 @@ test('TV D-pad reaches microphone; OK starts once; Back cancels and discards lat
     const count=requests.length;await page.evaluate(()=>window.CinemaHubTV.back());await page.waitForFunction(()=>!document.querySelector('dialog[open]'));
     assert.equal(await page.evaluate(id=>window.voiceFixture.messages.some(m=>m.type==='voice_search_cancel'&&m.requestId===id),message.requestId),true);
     await emit(page,{type:'voice_search_result',requestId:message.requestId,text:'Spóźniony film'});assert.equal(await input.inputValue(),'Tekst ręczny');assert.equal(requests.length,count);
+    // Let the cancelled dialog finish restoring focus before sending the next remote key.
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
+    assert.equal(await mic.evaluate(el=>el===document.activeElement),true);
     const languageButton=page.getByRole('button',{name:'Język wyszukiwania głosowego',exact:true});
     await mic.focus();await page.keyboard.press('ArrowRight');assert.equal(await languageButton.evaluate(el=>el===document.activeElement),true);
     await page.keyboard.press('ArrowRight');assert.equal(await page.getByRole('button',{name:'Szukaj',exact:true}).evaluate(el=>el===document.activeElement),true);
@@ -108,14 +111,14 @@ test('Voice diagnostics cover permission, service, audio, network and empty resu
   const {chromium}=await import('playwright');const browser=await chromium.launch({headless:true,executablePath:browserPath});
   try{
     const {context,page,requests,errors}=await fixture(browser);
-    for(const [code,expected] of [['permission_denied','Brak zgody'],['unavailable','Brak systemowej'],['audio','nie udostępnił dźwięku'],['network','błąd sieci'],['no_match','Nie rozpoznano'],['no_speech','Nie wykryto'],['timeout','Przekroczono'],['busy','zajęta'],['language','wybranego języka'],['invalid_language','Nieprawidłowy kod'],['server','nie odpowiedziała']]){
+    for(const [code,expected] of [['permission_denied','Brak zgody'],['unavailable','Rozpoznawanie i synteza mowy'],['audio','nie udostępnił dźwięku'],['network','błąd sieci'],['no_match','Nie rozpoznano'],['no_speech','Nie wykryto'],['timeout','Przekroczono'],['busy','zajęta'],['language','wybranego języka'],['invalid_language','Nieprawidłowy kod'],['server','nie odpowiedziała']]){
       const count=requests.length,message=await start(page);await emit(page,{type:'voice_search_error',requestId:message.requestId,code});
       assert.match(await page.getByRole('alert').innerText(),new RegExp(expected));assert.equal(requests.length,count);
       if(code==='audio'&&process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'voice-search-audio-diagnostic.png')});
       await page.getByRole('button',{name:'Zamknij',exact:true}).last().click();await page.waitForFunction(()=>!document.querySelector('dialog[open]'));
     }
     let message=await start(page);await emit(page,{type:'voice_search_result',requestId:message.requestId,text:' '.repeat(10)});assert.match(await page.getByRole('alert').innerText(),/Nie rozpoznano/);
-    await page.getByRole('button',{name:'Spróbuj usługi w aplikacji'}).click();await page.getByRole('status').waitFor();
+    await page.getByRole('button',{name:'Spróbuj ponownie'}).click();await page.getByRole('status').waitFor();
     message=await page.evaluate(()=>window.voiceFixture.messages.filter(m=>m.type==='voice_search_start').at(-1));assert.equal(message.direct,true);
     await emit(page,{type:'voice_search_result',requestId:message.requestId,text:'<img src=x onerror=alert(1)> "Film"'});
     await page.getByRole('heading',{name:'Wyniki: <img src=x onerror=alert(1)> "Film"'}).waitFor();assert.equal(await page.locator('h1 img').count(),0);

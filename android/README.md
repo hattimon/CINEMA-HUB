@@ -2,15 +2,15 @@
 
 Klient Android panelu z kontenera, pakiet `pl.cinemahub.tv`. Instaluje się obok Filman TV. Konta, katalog, źródła i postęp oglądania obsługuje serwer Cinema Hub.
 
-## Wersja 1.3.10 — wyszukiwanie głosowe i diagnostyka mikrofonu
+## Wersja 1.3.11 — rozpoznawanie mowy i sterowanie Asystentem Google
 
-APK: [`CinemaHub-AndroidTV-v1.3.10.apk`](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.10/CinemaHub-AndroidTV-v1.3.10.apk), `versionCode 14`. Przycisk głosowy wymaga panelu serwera z obsługą tej funkcji, dostępnego w lokalnym kontenerze 1.3.14. Wybierz pilotem ikonę mikrofonu obok wyszukiwarki i naciśnij OK. Rozpoznany tytuł uruchamia dotychczasowe wyszukiwanie z zachowaniem filtrów. Wstecz anuluje próbę. Gboard nie bierze udziału w tej funkcji.
+APK: [CinemaHub-AndroidTV-v1.3.11.apk](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.11/CinemaHub-AndroidTV-v1.3.11.apk), `versionCode 15`, pakiet `pl.cinemahub.tv`. Zachowany podpis umożliwia aktualizację bez kasowania danych.
 
-**MENU → Mikrofon i rozpoznawanie** pozwala wybrać usługę rozpoznawania, ponownie wybrać systemowe okno mowy oraz sprawdzić uprawnienia i wejścia audio. Dziesięciosekundowy test pokazuje rzeczywisty poziom sygnału odczytywanego przez Cinema Hub, bez zapisywania lub wysyłania nagrań. Zerowy poziom samodzielnie nie potwierdza blokady firmware. [Opis wersji 1.3.10](../docs/RELEASE-ANDROID-1.3.10.md).
+Mikrofon przy wyszukiwarce automatycznie używa osobnej aplikacji Google **Rozpoznawanie i synteza mowy**. W menu klienta **Asystent Google — wyłącz / włącz ręcznie** otwiera szczegóły pakietu Google, gdzie można odwracalnie wyłączyć Asystenta. Na Magcubic L018 potwierdzono działanie po wyłączeniu `com.google.android.katniss`. Automatyczna dezaktywacja przy starcie i przywrócenie po wyjściu nie są dostępne dla standardowego APK.
 
-Klient wybiera systemowe okno `RecognizerIntent`; w razie jego braku używa `SpeechRecognizer`, z uprawnieniem `RECORD_AUDIO` żądanym w czasie działania. Po błędzie można ręcznie wybrać „Spróbuj usługi w aplikacji”. Jeśli Android zarezerwował przycisk mikrofonu pilota dla Asystenta, używaj ikony ekranowej. Mikrofon Bluetooth musi być dostępny systemowej usłudze dla innych aplikacji; działanie w Asystencie nie jest gwarancją zgodności.
+Usunięto eksperymentalną blokadę i usługę dostępności. Zostały diagnostyka mikrofonu, wybór języka w panelu, anulowanie i obsługa końcowych transkrypcji. Menu odtwarzacza zawiera 100–300%, AUTO i Normalizer; zapisane ustawienie działa od początku nowego filmu. Poprawiono też pierwsze rysowanie etykiet oraz niechciane otwieranie selektora plików.
 
-Pakiet i podpis są zgodne z lokalnym APK 1.3.6 i publicznym APK 1.3.7. Nie odinstalowuj aplikacji i nie czyść jej danych. Nowy APK został skompilowany i zweryfikowany automatycznie; test rzeczywistego dźwięku na Magcubic L018 oczekuje. [Pełna instrukcja, uprawnienia, protokół i test sprzętu](../docs/VOICE-SEARCH.md).
+[Pełny opis wydania](../docs/RELEASE-ANDROID-1.3.11.md) · [Instrukcja](../docs/VOICE-SEARCH.md) · [Panel 1.3.14](../docs/RELEASE-1.3.14.md).
 
 ## Dotychczasowe funkcje klienta
 
@@ -24,7 +24,7 @@ Zweryfikowany MP4/HLS jest przekazywany do Media3/ExoPlayer. Postęp wraca do pr
 
 Zapis filmu jest wyłącznie ręczny, po użyciu przycisku w panelu. Na Androidzie trafia do systemowych Pobierań i folderu `Download` projektora; nazwa zachowuje tytuł, sezon/odcinek oraz jakość i otrzymuje datę zapisu. Chmurowe cele zapisuje się w ustawieniach panelu. Serwer nie zapisuje filmów na swoim dysku.
 
-APK: `../releases/CinemaHub-AndroidTV-v1.3.6.apk` (versionCode 10). Można ją pobrać z `http://IP_SERWERA:9999/download/cinema-hub.apk`. Aplikacja sprawdza wydania GitHub po uruchomieniu i pyta o aktualizację; można też użyć **MENU → Sprawdź aktualizacje**. Po pobraniu Android otwiera własny instalator i wymaga zatwierdzenia. Przy pierwszej aktualizacji włącz jednorazowo **Zezwalaj z tego źródła** dla Cinema Hub. Instaluj jako aktualizację istniejącej aplikacji; pakiet i podpis pozostają zgodne z poprzednim APK. APK można także przenieść przez USB i otworzyć w menedżerze plików projektora.
+APK: `../releases/CinemaHub-AndroidTV-v1.3.11.apk` (versionCode 15). Można ją pobrać z `http://IP_SERWERA:9999/download/cinema-hub.apk`. Aplikacja sprawdza wydania GitHub po uruchomieniu i pyta o aktualizację; można też użyć **MENU → Sprawdź aktualizacje**. Po pobraniu Android otwiera własny instalator i wymaga zatwierdzenia. Przy pierwszej aktualizacji włącz jednorazowo **Zezwalaj z tego źródła** dla Cinema Hub. Instaluj jako aktualizację istniejącej aplikacji; pakiet i podpis pozostają zgodne z poprzednim APK. APK można także przenieść przez USB i otworzyć w menedżerze plików projektora.
 
 W 1.3.6 panel wyboru źródła wysuwa się z prawej strony i nie przyciemnia filmu. Gdy portal ogranicza zapytania, panel pokazuje licznik, pozostaje otwarty, a wcześniej sprawdzone źródła nadal można uruchomić. Zmiana korekcji obrazu odtwarza strumień od bieżącej pozycji z zachowaniem pauzy lub odtwarzania, zamiast podmieniać filtry w pracującym dekoderze.
 

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <application>
+        <service android:name="pl.cinemahub.tv.FixtureRecognitionService" android:exported="true" android:permission="android.permission.BIND_SPEECH_RECOGNITION_SERVICE" android:label="Cinema Hub fixture speech service">
+            <intent-filter><action android:name="android.speech.RecognitionService"/></intent-filter>
+        </service>
+        <activity android:name="pl.cinemahub.tv.FixtureVoiceActivity" android:exported="true" android:label="Cinema Hub fixture voice window">
+            <intent-filter><action android:name="android.speech.action.RECOGNIZE_SPEECH"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
+        </activity>
+        <activity android:name="pl.cinemahub.tv.FixtureCancelledVoiceActivity" android:exported="true" android:label="Cinema Hub fixture cancelled window">
+            <intent-filter><action android:name="android.speech.action.RECOGNIZE_SPEECH"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
+        </activity>
+    </application>
+</manifest>

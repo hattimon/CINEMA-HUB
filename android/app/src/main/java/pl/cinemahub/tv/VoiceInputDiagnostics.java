@@ -41,9 +41,14 @@ final class VoiceInputDiagnostics {
     private String text(String pl,String en){return VoiceSearchServices.text(pl,en);}
     void show(){
         voice.cancel();
-        String[] entries={text("Stan mikrofonu i usług mowy","Microphone and speech service status"),text("Wybierz usługę rozpoznawania","Choose recognition service"),text("Sprawdź sygnał mikrofonu (10 sekund)","Check microphone signal (10 seconds)"),text("Uprawnienia Cinema Hub","Cinema Hub permissions"),text("Systemowe ustawienia wprowadzania głosu","System voice input settings")};
+        String[] entries={text("Stan mikrofonu i usług mowy","Microphone and speech service status"),text("Sprawdź sygnał mikrofonu (10 sekund)","Check microphone signal (10 seconds)"),text("Uprawnienia Cinema Hub","Cinema Hub permissions"),text("Ostatnie zamknięcia i diagnostyka aplikacji","Recent exits and app diagnostics")};
         new AlertDialog.Builder(activity).setTitle(text("Mikrofon i rozpoznawanie","Microphone and recognition"))
-            .setItems(entries,(dialog,index)->{if(index==0)showStatus();else if(index==1)VoiceSearchServices.choose(activity);else if(index==2)requestTest();else if(index==3)openSettings(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+activity.getPackageName())));else openSettings(new Intent(Settings.ACTION_VOICE_INPUT_SETTINGS));})
+            .setItems(entries,(dialog,index)->{
+                if(index==0)showStatus();
+                else if(index==1)requestTest();
+                else if(index==2)openSettings(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+activity.getPackageName())));
+                else if(index==3)showTextReport(text("Diagnostyka aplikacji","App diagnostics"),AppDiagnostics.report(activity));
+            })
             .setNegativeButton(text("Zamknij","Close"),null).show();
     }
     private void openSettings(Intent intent){
@@ -62,9 +67,12 @@ final class VoiceInputDiagnostics {
         if(devices.length==0)report.append("\n").append(text("Brak widocznych wejść.","No visible inputs."));
         for(AudioDeviceInfo device:devices)report.append("\n• ").append(device.getProductName()).append(" (").append(deviceType(device.getType())).append(")");
         report.append("\n\n").append(text("Lista urządzeń nie potwierdza, że mikrofon pilota jest dostępny dla Cinema Hub. Sprawdź sygnał mikrofonu. Test nie zapisuje nagrań.","The device list does not prove that Cinema Hub can capture the remote microphone. Run the signal test. The test does not save recordings."));
+        showTextReport(text("Diagnostyka mikrofonu","Microphone diagnostics"),report);
+    }
+    private void showTextReport(String title,CharSequence report){
         TextView view=new TextView(activity);view.setText(report);int padding=(int)(24*activity.getResources().getDisplayMetrics().density);view.setPadding(padding,padding,padding,padding);view.setTextSize(17);
         ScrollView scroll=new ScrollView(activity);scroll.addView(view);
-        new AlertDialog.Builder(activity).setTitle(text("Diagnostyka mikrofonu","Microphone diagnostics")).setView(scroll).setPositiveButton(text("Zamknij","Close"),null).show();
+        new AlertDialog.Builder(activity).setTitle(title).setView(scroll).setPositiveButton(text("Zamknij","Close"),null).show();
     }
     private static String deviceType(int type){
         switch(type){case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:return "Bluetooth SCO";case AudioDeviceInfo.TYPE_BLE_HEADSET:return "Bluetooth LE";case AudioDeviceInfo.TYPE_BUILTIN_MIC:return "MIC";case AudioDeviceInfo.TYPE_USB_DEVICE:case AudioDeviceInfo.TYPE_USB_HEADSET:return "USB";case AudioDeviceInfo.TYPE_WIRED_HEADSET:return "Headset";default:return "Android "+type;}
@@ -113,7 +121,7 @@ final class VoiceInputDiagnostics {
             else handler.postDelayed(this,100);
         }catch(RuntimeException error){stopRecording();status.setText(text("Odczyt dźwięku został przerwany.","Audio capture was interrupted."));}
     }};
-    private void stopRecording(){handler.removeCallbacks(measure);AudioRecord old=recorder;recorder=null;if(old!=null){try{old.stop();}catch(RuntimeException ignored){}old.release();}Arrays.fill(samples,(short)0);}
+    private void stopRecording(){handler.removeCallbacks(measure);AudioRecord old=recorder;recorder=null;if(old!=null){try{old.stop();}catch(RuntimeException ignored){}try{old.release();}catch(RuntimeException cleanup){AppDiagnostics.event(activity,"audio.test_cleanup_error");}}Arrays.fill(samples,(short)0);}
     void pause(){if(recorder!=null){stopRecording();if(status!=null)status.append("\n\n"+text("Test zatrzymany po przełączeniu aplikacji.","Test stopped when the app lost foreground focus."));}}
     void destroy(){permissionPending=false;stopRecording();if(testDialog!=null)testDialog.dismiss();handler.removeCallbacksAndMessages(null);}
 }

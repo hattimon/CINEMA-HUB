@@ -6,7 +6,7 @@ import {normalizeVoiceLanguage,storedVoiceLanguage,voiceLanguageKey,voiceLanguag
 declare global {interface Window {CinemaHubVoice?:{start:()=>boolean}}}
 const errors:Record<string,string>={
   permission_denied:'Brak zgody na mikrofon. W ustawieniach Androida otwórz Aplikacje → Cinema Hub → Uprawnienia → Mikrofon i zezwól na dostęp podczas używania aplikacji.',
-  unavailable:'Brak systemowej usługi rozpoznawania mowy. Włącz lub zaktualizuj usługę rozpoznawania w ustawieniach Androida.',
+  unavailable:'Usługa rozpoznawania mowy jest niedostępna. W Cinema Hub 1.3.11 włącz lub zaktualizuj aplikację Google „Rozpoznawanie i synteza mowy” w ustawieniach Androida.',
   audio:'Android nie udostępnił dźwięku z mikrofonu. Sprawdź parowanie i baterie pilota oraz systemowy przełącznik dostępu do mikrofonu. Niektóre urządzenia udostępniają mikrofon Bluetooth wyłącznie Asystentowi.',
   network:'Usługa rozpoznawania zgłosiła błąd sieci. Sprawdź internet lub pobierz pakiet offline wybranego języka w ustawieniach usługi.',
   no_match:'Nie rozpoznano tytułu. Spróbuj ponownie i mów wyraźnie. Jeśli mikrofon działa tylko w Asystencie, sprawdź dostępność mikrofonu pilota dla innych aplikacji.',
@@ -15,7 +15,7 @@ const errors:Record<string,string>={
   language:'Usługa nie obsługuje teraz wybranego języka. Włącz go lub pobierz odpowiedni pakiet w ustawieniach usługi mowy Androida.',
   invalid_language:'Nieprawidłowy kod języka. Użyj np. en-US, pl-PL lub zh-Hant-TW.',
   timeout:'Przekroczono czas oczekiwania na rozpoznanie. Sprawdź mikrofon pilota i usługę rozpoznawania, a następnie spróbuj ponownie.',
-  client:'Systemowa usługa nie rozpoczęła rozpoznawania. Spróbuj usługi w aplikacji lub sprawdź ustawienia rozpoznawania mowy Androida.',
+  client:'Usługa nie rozpoczęła rozpoznawania. Spróbuj ponownie lub sprawdź ustawienia rozpoznawania mowy Androida.',
   server:'Usługa rozpoznawania mowy nie odpowiedziała poprawnie. Sprawdź jej ustawienia i spróbuj ponownie.'
 };
 function requestId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('');}
@@ -78,9 +78,9 @@ export default function VoiceSearch({onSearch}:{onSearch:(text:string)=>void}){
       <div className="form-actions"><button type="button" className="button secondary" onClick={closeLanguage}>Anuluj / Cancel</button><button type="button" className="button primary" data-modal-autofocus onClick={saveLanguage}>Zapisz / Save</button></div></div>
     </Modal>:null}
     {listening||error?<Modal title="Wyszukiwanie głosowe" className="voice-search-modal" portalTarget={document.body} onClose={cancel}>
-      <div className="voice-search-content"><Mic size={32}/><p role={error?'alert':'status'}>{error||'Powiedz tytuł w oknie Androida. Jeśli pojawi się prośba o dostęp do mikrofonu, zatwierdź ją pilotem.'}</p>
+      <div className="voice-search-content"><Mic size={32}/><p role={error?'alert':'status'}>{error||'Powiedz tytuł po uruchomieniu mikrofonu. Jeśli pojawi się prośba o dostęp do mikrofonu, zatwierdź ją pilotem.'}</p>
         <div className="form-actions"><button type="button" data-modal-autofocus className="button secondary" onClick={cancel}><X size={16}/>{error?'Zamknij':'Anuluj'}</button>
-          {error?<button type="button" className="button primary" onClick={()=>{setError('');requestAnimationFrame(()=>start(true));}}>Spróbuj usługi w aplikacji</button>:null}</div>
+          {error?<button type="button" className="button primary" onClick={()=>{setError('');requestAnimationFrame(()=>start(true));}}>Spróbuj ponownie</button>:null}</div>
         <p className="form-note">Język / Language: {voiceLanguageLabel(effectiveLanguage)} ({effectiveLanguage}). Dźwięk przetwarza usługa Androida. Cinema Hub otrzymuje tylko tekst.</p>
       </div></Modal>:null}</>;
 }

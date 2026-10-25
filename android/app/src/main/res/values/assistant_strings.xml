@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="assistant_guard_description">Optionally filters the Assistant remote key when Android delivers it to accessibility services. Active only while Cinema Hub is in the foreground. Does not read screen contents or speech.</string>
+</resources>

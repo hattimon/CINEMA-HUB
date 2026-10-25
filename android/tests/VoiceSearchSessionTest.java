@@ -46,6 +46,19 @@ public final class VoiceSearchSessionTest {
         expect(!ServerAddress.owns("https://kino.example/","https://kino.example.evil.test"));
         expect(!ServerAddress.owns("https://kino.example/","https://kino.example:9999"));
         expect(!ServerAddress.owns("https://kino.example/","https://user@kino.example"));
+        s.choose(ID);expect(s.state()==VoiceSearchSession.State.CHOOSING&&s.active());
+        int beforeChoice=f.events;
+        s.result("Wynik przed wyborem");expect(s.state()==VoiceSearchSession.State.CHOOSING&&f.events==beforeChoice);
+        s.choose("b".repeat(32));expect(s.requestId().equals(ID));
+        s.selected(true);expect(s.state()==VoiceSearchSession.State.LISTENING);
+        s.cancel();s.selected(true);expect(!s.active()&&f.type.equals("voice_search_cancelled"));
+        s.choose(ID);s.cancel();expect(!s.active()&&f.type.equals("voice_search_cancelled"));
+        s.choose("bad");expect(!s.active());
+        s.choose(ID);s.keyboard();expect(!s.active()&&f.type.equals("voice_search_keyboard")&&f.id.equals(ID));
+        int keyboardEvents=f.events;s.keyboard();s.result("Spóźniony tekst");expect(f.events==keyboardEvents);
+        f.permission=false;s.start(ID,true);expect(s.state()==VoiceSearchSession.State.PERMISSION);
+        beforeChoice=f.events;s.result("Wynik bez uprawnienia");expect(f.events==beforeChoice&&s.state()==VoiceSearchSession.State.PERMISSION);
+        s.cancel();s.permissionResult(true);expect(!s.active());
         System.out.println("PASS: "+checks+" voice state, permission, origin, cancellation and release checks");
     }
 }
