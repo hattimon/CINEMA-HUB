@@ -24,7 +24,10 @@ export function installTV() {
       if(target.dataset.tvEditing==='true')return false;
       if(['Home','End','PageUp','PageDown'].includes(key))return true;
     }
-    if(!target||target.tagName==='SELECT'||target.tagName==='TEXTAREA'||target.tagName==='IFRAME'||target.tagName==='INPUT'&&target.getAttribute('type')!=='checkbox'&&!range)return false;
+    const searchInput=target?.matches('.search-box input')?target as HTMLInputElement:null;
+    if(searchInput&&key==='ArrowRight'&&searchInput.selectionStart===searchInput.value.length&&searchInput.selectionEnd===searchInput.value.length){const next=searchInput.parentElement?.querySelector<HTMLElement>('button');if(next){focus(next);return true;}}
+    const leaveSearch=searchInput&&(['ArrowUp','ArrowDown'].includes(key)||key==='ArrowLeft'&&searchInput.selectionStart===0&&searchInput.selectionEnd===0);
+    if(!target||target.tagName==='SELECT'||target.tagName==='TEXTAREA'||target.tagName==='IFRAME'||target.tagName==='INPUT'&&target.getAttribute('type')!=='checkbox'&&!range&&!leaveSearch)return false;
     const group=target.closest<HTMLElement>('[data-tv-group]');
     if(key==='ArrowUp'&&target.matches('[data-tv-exit-left],[data-tv-exit-right]')){const favorite=scope().querySelector<HTMLElement>('[data-tv-detail-primary]');if(favorite&&visible(favorite)){focusDetails(favorite);return true;}}
     if(group){

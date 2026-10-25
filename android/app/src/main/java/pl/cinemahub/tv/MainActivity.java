@@ -129,6 +129,9 @@ public class MainActivity extends Activity {
     private ExoPlayer player;
     private PlayerView playerView;
     private JavaScriptReplyProxy playerReply;
+    private VoiceSearchController voiceSearch;
+    private JavaScriptReplyProxy voiceReply;
+    private WebView voiceWeb;
     private ValueCallback<Uri[]> fileChooser;
     private String[] pendingDownload;
     private boolean cursorMode,pausedByLifecycle,mainLoadFailed;
@@ -148,6 +151,7 @@ public class MainActivity extends Activity {
         server=preferences.getString("server",ServerAddress.DEFAULT);
         cursorMode=preferences.getBoolean("cursor",false);
         root=new FrameLayout(this);root.setBackgroundColor(Color.rgb(11,13,18));setContentView(root);
+        voiceSearch=new VoiceSearchController(this,this::voiceCompleted);
         createWeb();immersive();
         if(!preferences.getBoolean("configured",false))handler.postDelayed(this::editServer,300);
         handler.postDelayed(()->checkForUpdates(false),5000);
@@ -275,6 +279,7 @@ public class MainActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean focused){super.onWindowFocusChanged(focused);if(focused)immersive();}
 
     private void createWeb() {
+        cancelVoiceForNavigation();
         if(loginDialog!=null)loginDialog.dismiss();hideCustom();closePlayer(false,false);
         if(web!=null){root.removeView(web);web.destroy();}
         if(errorView!=null){root.removeView(errorView);errorView=null;}
@@ -298,12 +303,12 @@ public class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView w,WebResourceRequest r){return !allowed(r.getUrl().toString());}
             @Override public boolean shouldOverrideUrlLoading(WebView w,String address){return !allowed(address);}
             private boolean allowed(String address){if("about:blank".equals(address)||ServerAddress.owns(server,address))return true;Toast.makeText(MainActivity.this,"Ten adres jest poza wybranym serwerem Cinema Hub.",Toast.LENGTH_SHORT).show();return false;}
-            @Override public void onPageStarted(WebView w,String address,android.graphics.Bitmap icon){if(w==web)mainLoadFailed=false;}
+            @Override public void onPageStarted(WebView w,String address,android.graphics.Bitmap icon){if(w==web){cancelVoiceForNavigation();mainLoadFailed=false;}}
             @Override public void onPageFinished(WebView w,String address){if(w==web&&!mainLoadFailed&&ServerAddress.owns(server,address)){if(errorView!=null){root.removeView(errorView);errorView=null;}CookieManager.getInstance().flush();immersive();}}
             @Override public void onReceivedError(WebView w,WebResourceRequest r,WebResourceError e){if(r.isForMainFrame()&&w==web){mainLoadFailed=true;showError("Brak połączenia z serwerem. Sprawdź adres, port i dostęp projektora do tej sieci.");}}
             @Override public void onReceivedHttpError(WebView w,WebResourceRequest r,WebResourceResponse response){if(r.isForMainFrame()&&w==web){mainLoadFailed=true;showError("Serwer odpowiedział błędem HTTP "+response.getStatusCode()+".");}}
             @Override public void onReceivedSslError(WebView w,SslErrorHandler h,SslError e){h.cancel();if(w==web){mainLoadFailed=true;showError("Serwer HTTPS ma nieprawidłowy certyfikat. Popraw certyfikat lub wpisz właściwy adres serwera w sieci lokalnej.");}}
-            @Override public boolean onRenderProcessGone(WebView w,RenderProcessGoneDetail detail){root.removeView(w);w.destroy();if(w==web){web=null;showError("Android WebView zakończył działanie. Użyj Ponów, aby otworzyć panel.");}return true;}
+            @Override public boolean onRenderProcessGone(WebView w,RenderProcessGoneDetail detail){if(w==web)cancelVoiceForNavigation();root.removeView(w);w.destroy();if(w==web){web=null;showError("Android WebView zakończył działanie. Użyj Ponów, aby otworzyć panel.");}return true;}
         });
         view.setWebChromeClient(new WebChromeClient(){
             @Override public void onShowCustomView(View v,CustomViewCallback callback){if(customView!=null){callback.onCustomViewHidden();return;}customView=v;customCallback=callback;root.addView(v,new FrameLayout.LayoutParams(-1,-1));menuButton.setVisibility(View.GONE);cursor.setVisibility(View.GONE);immersive();}
@@ -314,14 +319,46 @@ public class MainActivity extends Activity {
         });
         view.setDownloadListener((url,agent,disposition,mime,length)->download(url,agent,disposition,mime));
         if(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))WebViewCompat.addWebMessageListener(view,"CinemaNative",Collections.singleton(ServerAddress.origin(server)),(w,message,origin,mainFrame,reply)->{
-            if(!mainFrame||w!=web||!ServerAddress.owns(server,origin.toString()))return;
+            if(!mainFrame||w!=web||!ServerAddress.owns(server,origin.toString())||!ServerAddress.owns(server,w.getUrl()))return;
+            try{JSONObject data=new JSONObject(message.getData());if(handleVoiceMessage(data,w,reply))return;}catch(Exception ignored){return;}
             try{JSONObject data=new JSONObject(message.getData());String type=data.optString("type"),id=data.optString("playbackId");if(!ServerAddress.isPlaybackId(id))return;if(type.equals("play"))openPlayer(data,reply);else if(id.equals(playbackId)){if(type.equals("stop"))closePlayer(false,false);else if(type.equals("settings"))updatePlayerSettings(data);else if(type.equals("fullscreen"))setPlayerFullscreen(data.optBoolean("enabled"));else if(type.equals("panel")){String mode=data.optString("mode");boolean open=data.optBoolean("open");if(mode.equals("effects")){if(open)showPlaybackMenu();else closePlaybackEffectsPanel();}else setWebPanel(open,mode);}else if(type.equals("transport")&&player!=null){String action=data.optString("action");if(action.equals("toggle"))togglePause();else if(action.equals("pause"))player.pause();else if(action.equals("play"))player.play();else if(action.equals("seek"))seekBy(Math.max(-60000,Math.min(60000,data.optLong("delta"))));else if(action.equals("seekTo"))seekToPosition(data.optLong("position"));}}}catch(Exception error){Toast.makeText(this,"Nie można wykonać tej operacji odtwarzacza.",Toast.LENGTH_SHORT).show();}
         });
     }
 
+    private boolean handleVoiceMessage(JSONObject data,WebView source,JavaScriptReplyProxy reply)throws Exception {
+        String type=data.optString("type"),id=data.optString("requestId");
+        if(!type.startsWith("voice_search_"))return false;
+        if(!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))return true;
+        if(!VoiceSearchSession.validId(id))return true;
+        if(type.equals("voice_search_capabilities")){
+            JSONObject result=new JSONObject().put("type","voice_search_capabilities").put("requestId",id).put("supported",true).put("available",voiceSearch.available()).put("languageSelection",true).put("defaultLanguage",VoiceSearchLanguage.device(Locale.getDefault()));
+            reply.postMessage(result.toString());
+        }else if(type.equals("voice_search_cancel")){
+            if(id.equals(voiceSearch.session.requestId()))voiceSearch.cancel();
+        }else if(type.equals("voice_search_start")){
+            if(voiceSearch.busy()||player!=null||customView!=null||loginDialog!=null){
+                if(!id.equals(voiceSearch.session.requestId()))reply.postMessage(new JSONObject().put("type","voice_search_error").put("requestId",id).put("code","busy").toString());
+                return true;
+            }
+            voiceReply=reply;voiceWeb=source;voiceSearch.start(id,data.optBoolean("direct",false),data.optString("language","system"));
+        }
+        return true;
+    }
+    private void voiceCompleted(String type,String id,String value){
+        JavaScriptReplyProxy reply=voiceReply;WebView source=voiceWeb;voiceReply=null;voiceWeb=null;
+        if(reply==null||source!=web||web==null||!ServerAddress.owns(server,web.getUrl())||!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))return;
+        try{JSONObject result=new JSONObject().put("type",type).put("requestId",id);
+            if(type.equals("voice_search_result"))result.put("text",value);
+            else if(type.equals("voice_search_error"))result.put("code",value);
+            reply.postMessage(result.toString());
+        }catch(Exception ignored){}
+    }
+    private void cancelVoiceForNavigation(){voiceReply=null;voiceWeb=null;if(voiceSearch!=null)voiceSearch.cancel();}
+
     private void openPlayer(JSONObject data,JavaScriptReplyProxy reply) {openPlayer(data,reply,false,true);}
 
     private void openPlayer(JSONObject data,JavaScriptReplyProxy reply,boolean disablePicture,boolean playWhenReady) {
+        if(voiceSearch!=null)voiceSearch.cancel();
         closePlayer(false,false);playbackId=data.optString("playbackId");playerReply=reply;playerFullscreen=data.optBoolean("fullscreen",false);series=data.optBoolean("series",false);webPanel=false;pausedByLifecycle=false;
         playbackRequest=data;pictureDisabled=disablePicture;
         updatePlayerSettings(data);
@@ -548,12 +585,16 @@ public class MainActivity extends Activity {
     private void showError(String message){if(errorView!=null)root.removeView(errorView);LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setGravity(Gravity.CENTER);panel.setPadding(dp(45),dp(30),dp(45),dp(30));panel.setBackgroundColor(Color.rgb(11,13,18));TextView title=new TextView(this);title.setText("Cinema Hub");title.setTextColor(Color.rgb(162,138,255));title.setTextSize(28);panel.addView(title);TextView description=new TextView(this);description.setText(message+"\n\n"+server);description.setTextColor(Color.WHITE);description.setTextSize(17);description.setPadding(0,dp(20),0,dp(20));panel.addView(description);Button retry=new Button(this);retry.setText("Ponów");retry.setOnClickListener(v->createWeb());panel.addView(retry);Button settings=new Button(this);settings.setText("Zmień adres serwera");settings.setOnClickListener(v->editServer());panel.addView(settings);root.addView(panel,new FrameLayout.LayoutParams(-1,-1));errorView=panel;retry.requestFocus();}
 
     private void download(String address,String agent,String disposition,String mime){if(!ServerAddress.isDownload(server,address)){Toast.makeText(this,"Można zapisać wyłącznie film ręcznie wybrany w Cinema Hub.",Toast.LENGTH_LONG).show();return;}if(Build.VERSION.SDK_INT<29&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){pendingDownload=new String[]{address,agent,disposition,mime};requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},11);return;}try{String name=URLUtil.guessFileName(address,disposition,mime);if(disposition!=null){int at=disposition.toLowerCase(Locale.ROOT).indexOf("filename*=utf-8''");if(at>=0)name=URLDecoder.decode(disposition.substring(at+17).split(";")[0].replace("\"",""),"UTF-8");}name=name.replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]","_");int dot=name.lastIndexOf('.');String ext=dot>0?name.substring(dot):".mp4",label=dot>0?name.substring(0,dot):name;while(label.getBytes("UTF-8").length>180)label=label.substring(0,label.length()-1);String stamp=new SimpleDateFormat("yyyyMMdd-HHmmss",Locale.ROOT).format(new java.util.Date());name=label+" - "+stamp+ext;DownloadManager.Request request=new DownloadManager.Request(Uri.parse(address)).setTitle(name).setDescription("Ręczny zapis filmu z Cinema Hub").setMimeType(mime).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED).setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,name);String cookies=CookieManager.getInstance().getCookie(server);if(cookies!=null)request.addRequestHeader("Cookie",cookies);request.addRequestHeader("User-Agent",agent);((DownloadManager)getSystemService(DOWNLOAD_SERVICE)).enqueue(request);Toast.makeText(this,"Dodano do pobrań Android: "+name,Toast.LENGTH_LONG).show();}catch(Exception error){Toast.makeText(this,"Nie można rozpocząć zapisu na urządzeniu. Sprawdź wolne miejsce i systemową aplikację Pobrania.",Toast.LENGTH_LONG).show();}}
-    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code==11&&pendingDownload!=null){String[] request=pendingDownload;pendingDownload=null;if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)download(request[0],request[1],request[2],request[3]);}}
-    @Override protected void onActivityResult(int code,int result,Intent data){super.onActivityResult(code,result,data);if(code==10&&fileChooser!=null){fileChooser.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));fileChooser=null;}}
+    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(voiceSearch!=null&&voiceSearch.permissionResult(code,results))return;if(code==11&&pendingDownload!=null){String[] request=pendingDownload;pendingDownload=null;if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)download(request[0],request[1],request[2],request[3]);}}
+    @Override protected void onActivityResult(int code,int result,Intent data){super.onActivityResult(code,result,data);if(voiceSearch!=null&&voiceSearch.activityResult(code,result,data))return;if(code==10&&fileChooser!=null){fileChooser.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));fileChooser=null;}}
 
     private void moveCursor(){if(web==null||cursor==null)return;cursorX=Math.max(2,Math.min(root.getWidth()-dp(22),cursorX));cursorY=Math.max(2,Math.min(root.getHeight()-dp(22),cursorY));cursor.setTranslationX(cursorX);cursor.setTranslationY(cursorY);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean keyDown=event.getAction()==KeyEvent.ACTION_DOWN;
+        if((key==KeyEvent.KEYCODE_SEARCH||key==KeyEvent.KEYCODE_VOICE_ASSIST||key==KeyEvent.KEYCODE_ASSIST)&&player==null&&customView==null&&loginDialog==null&&web!=null&&ServerAddress.owns(server,web.getUrl())){
+            if(keyDown&&event.getRepeatCount()==0&&!voiceSearch.busy())web.evaluateJavascript("!!(window.CinemaHubVoice&&window.CinemaHubVoice.start())",result->{if(!"true".equals(result))Toast.makeText(this,"Wyszukiwanie głosowe wymaga aktualnego panelu Cinema Hub i otwartej wyszukiwarki.",Toast.LENGTH_LONG).show();});
+            return true;
+        }
         if(player!=null&&!webPanel){
             if(key==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||key==KeyEvent.KEYCODE_HEADSETHOOK){if(keyDown&&event.getRepeatCount()==0)togglePause();return true;}
             if(key==KeyEvent.KEYCODE_MEDIA_PAUSE){if(keyDown)player.pause();return true;}
@@ -580,8 +621,8 @@ public class MainActivity extends Activity {
         }
         if(cursorMode&&web!=null&&web.hasFocus()&&loginDialog==null&&customView==null&&player==null){if(key>=KeyEvent.KEYCODE_DPAD_UP&&key<=KeyEvent.KEYCODE_DPAD_RIGHT){if(event.getAction()==KeyEvent.ACTION_DOWN){float step=dp(9)*Math.min(4,1+event.getRepeatCount()/8f);if(key==KeyEvent.KEYCODE_DPAD_UP)cursorY-=step;if(key==KeyEvent.KEYCODE_DPAD_DOWN)cursorY+=step;if(key==KeyEvent.KEYCODE_DPAD_LEFT)cursorX-=step;if(key==KeyEvent.KEYCODE_DPAD_RIGHT)cursorX+=step;moveCursor();}return true;}if(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER){if(event.getAction()==KeyEvent.ACTION_UP){long time=android.os.SystemClock.uptimeMillis();MotionEvent down=MotionEvent.obtain(time,time,MotionEvent.ACTION_DOWN,cursorX+dp(8),cursorY+dp(8),0),up=MotionEvent.obtain(time,time+40,MotionEvent.ACTION_UP,cursorX+dp(8),cursorY+dp(8),0);web.dispatchTouchEvent(down);web.dispatchTouchEvent(up);down.recycle();up.recycle();}return true;}if(key==KeyEvent.KEYCODE_PAGE_DOWN||key==KeyEvent.KEYCODE_PAGE_UP){if(event.getAction()==KeyEvent.ACTION_DOWN)web.scrollBy(0,(key==KeyEvent.KEYCODE_PAGE_DOWN?1:-1)*root.getHeight()/2);return true;}}return super.dispatchKeyEvent(event);
     }
-    @Override public void onBackPressed(){if(player!=null){if(playbackEffectsDialog!=null&&playbackEffectsDialog.isShowing()){closePlaybackEffectsPanel();return;}if(webPanel&&web!=null){web.evaluateJavascript("!!(window.CinemaHubTV&&window.CinemaHubTV.back())",result->{if(!"true".equals(result))setWebPanel(false,"none");});}else if(playerFullscreen)setPlayerFullscreen(false);else closePlayer(true,false);return;}if(customView!=null){hideCustom();return;}if(loginDialog!=null){if(loginWeb!=null&&loginWeb.canGoBack())loginWeb.goBack();else loginDialog.dismiss();return;}if(web==null){finish();return;}web.evaluateJavascript("!!(window.CinemaHubTV&&window.CinemaHubTV.back())",result->{if(!"true".equals(result)){if(web.canGoBack())web.goBack();else new AlertDialog.Builder(this).setMessage("Zamknąć Cinema Hub?").setPositiveButton("Zamknij",(d,w)->finish()).setNegativeButton("Wróć",null).show();}});}
-    @Override protected void onPause(){super.onPause();CookieManager.getInstance().flush();if(player!=null){pausedByLifecycle=player.isPlaying();player.pause();sendProgress(false);}if(web!=null)web.onPause();}
+    @Override public void onBackPressed(){if(voiceSearch!=null&&voiceSearch.session.active()){voiceSearch.cancel();return;}if(player!=null){if(playbackEffectsDialog!=null&&playbackEffectsDialog.isShowing()){closePlaybackEffectsPanel();return;}if(webPanel&&web!=null){web.evaluateJavascript("!!(window.CinemaHubTV&&window.CinemaHubTV.back())",result->{if(!"true".equals(result))setWebPanel(false,"none");});}else if(playerFullscreen)setPlayerFullscreen(false);else closePlayer(true,false);return;}if(customView!=null){hideCustom();return;}if(loginDialog!=null){if(loginWeb!=null&&loginWeb.canGoBack())loginWeb.goBack();else loginDialog.dismiss();return;}if(web==null){finish();return;}web.evaluateJavascript("!!(window.CinemaHubTV&&window.CinemaHubTV.back())",result->{if(!"true".equals(result)){if(web.canGoBack())web.goBack();else new AlertDialog.Builder(this).setMessage("Zamknąć Cinema Hub?").setPositiveButton("Zamknij",(d,w)->finish()).setNegativeButton("Wróć",null).show();}});}
+    @Override protected void onPause(){super.onPause();if(voiceSearch!=null)voiceSearch.pause();CookieManager.getInstance().flush();if(player!=null){pausedByLifecycle=player.isPlaying();player.pause();sendProgress(false);}if(web!=null)web.onPause();}
     @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();if(player!=null&&pausedByLifecycle){pausedByLifecycle=false;player.play();}if(waitingForInstallPermission){waitingForInstallPermission=false;if(Build.VERSION.SDK_INT>=26&&getPackageManager().canRequestPackageInstalls())requestUpdateInstall();else Toast.makeText(this,"Instalacja aktualizacji wymaga zezwolenia „Zezwalaj z tego źródła”.",Toast.LENGTH_LONG).show();}immersive();}
-    @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);updateExecutor.shutdownNow();closePlayer(false,false);hideCustom();if(fileChooser!=null)fileChooser.onReceiveValue(null);if(loginDialog!=null)loginDialog.dismiss();if(updateProgressDialog!=null)updateProgressDialog.dismiss();if(web!=null)web.destroy();super.onDestroy();}
+    @Override protected void onDestroy(){cancelVoiceForNavigation();if(voiceSearch!=null)voiceSearch.destroy();handler.removeCallbacksAndMessages(null);updateExecutor.shutdownNow();closePlayer(false,false);hideCustom();if(fileChooser!=null)fileChooser.onReceiveValue(null);if(loginDialog!=null)loginDialog.dismiss();if(updateProgressDialog!=null)updateProgressDialog.dismiss();if(web!=null)web.destroy();super.onDestroy();}
 }

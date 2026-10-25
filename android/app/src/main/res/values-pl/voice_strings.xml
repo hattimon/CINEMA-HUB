@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="voice_title">Wyszukiwanie głosowe</string>
+    <string name="voice_prompt">Powiedz tytuł filmu lub serialu</string>
+    <string name="voice_ready">Mów teraz. Powiedz tytuł filmu lub serialu.</string>
+    <string name="voice_processing">Rozpoznawanie tytułu…</string>
+    <string name="voice_starting">Uruchamianie mikrofonu…</string>
+    <string name="voice_cancel">Anuluj</string>
+</resources>

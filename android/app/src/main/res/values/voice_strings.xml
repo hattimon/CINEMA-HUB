@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="voice_title">Voice search</string>
+    <string name="voice_prompt">Say a movie or TV series title</string>
+    <string name="voice_ready">Speak now. Say a movie or TV series title.</string>
+    <string name="voice_processing">Recognizing the title…</string>
+    <string name="voice_starting">Starting the microphone…</string>
+    <string name="voice_cancel">Cancel</string>
+</resources>

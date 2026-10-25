@@ -1,5 +1,15 @@
 # Historia wydań
 
+## Android 1.3.9 i panel 1.3.12 — wyszukiwanie głosowe
+
+- Ikona mikrofonu przy wyszukiwarce uruchamia systemowe rozpoznawanie mowy, niezależnie od dyktowania Gboard. Wynik trafia do dotychczasowego wyszukiwania z zachowaniem źródeł, filtrów i sortowania.
+- Domyślny język urządzenia, wybór 35 popularnych wariantów i własnego tagu BCP 47; zapis wyboru lokalnie. Można dyktować angielskie i inne zagraniczne tytuły. Funkcja nie tłumaczy tytułów ani całego interfejsu.
+- Systemowe okno `RecognizerIntent` i bezpośredni `SpeechRecognizer`, runtime `RECORD_AUDIO` oraz widoczność usług Androida 11–14. Przycisk pilota działa, jeśli Android dostarczy go aplikacji; w pozostałych przypadkach służy ikona ekranowa.
+- Bezpieczne rozszerzenie istniejącego `CinemaNative`, identyfikatory prób, D-pad/OK/Wstecz, anulowanie, limity, diagnostyka i zwalnianie zasobów. Bez zapisu nagrań i wysyłania audio do Cinema Hub.
+- Podpis i pakiet zgodne z poprzednim publicznym APK 1.3.7, versionCode 13. Aktualizacja wymaga nowego APK i panelu 1.3.12. Opis wydania podaje testy automatyczne i oczekującą weryfikację mikrofonu Bluetooth.
+
+[Instrukcja i ograniczenia](docs/VOICE-SEARCH.md) · [Opis wydania Android](docs/RELEASE-ANDROID-1.3.9.md).
+
 ## Serwer i kontener 1.3.10 — zapamiętany odcinek i paski przewijania
 
 - **Powrót do ostatniego odcinka.** „Kontynuuj” i „Ulubione” otwierają zapisany sezon oraz odcinek. Zmiana końcówki adresu odcinka Filman po zmianie sesji, np. `/0` → `/388690`, nie przenosi już do S01E01. Odcinek jest rozpoznawany także po sezonie i numerze, a stare wpisy historii są odczytywane z bieżącym adresem bez utraty czasu seansu.

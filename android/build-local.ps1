@@ -28,18 +28,28 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & "$env:JAVA_HOME\bin\java.exe" -cp $testClasses pl.cinemahub.tv.AppVersionTest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\javac.exe" -encoding UTF-8 -d $testClasses (Join-Path $project 'app\src\main\java\pl\cinemahub\tv\ServerAddress.java') (Join-Path $project 'app\src\main\java\pl\cinemahub\tv\VoiceSearchSession.java') (Join-Path $project 'tests\VoiceSearchSessionTest.java')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\java.exe" -cp $testClasses pl.cinemahub.tv.VoiceSearchSessionTest
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\javac.exe" -encoding UTF-8 -cp $testClasses -d $testClasses (Join-Path $project 'app\src\main\java\pl\cinemahub\tv\VoiceSearchLanguage.java') (Join-Path $project 'tests\VoiceSearchLanguageTest.java')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& "$env:JAVA_HOME\bin\java.exe" -cp $testClasses pl.cinemahub.tv.VoiceSearchLanguageTest
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Push-Location $project
 try {
     & (Join-Path $toolchain 'gradle\gradle-8.9\bin\gradle.bat') @Tasks --no-daemon
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $apk = Join-Path $project 'app\build\outputs\apk\release\app-release.apk'
-    if (Test-Path -LiteralPath $apk) {
+    if ((Test-Path -LiteralPath $apk) -and ($Tasks -contains ':app:assembleRelease')) {
         & (Join-Path $env:ANDROID_HOME 'build-tools\35.0.0\apksigner.bat') verify $apk
         if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
         $release = Join-Path $project '..\releases'
         New-Item -ItemType Directory -Path $release -Force | Out-Null
-        $target = Join-Path $release 'CinemaHub-AndroidTV-v1.3.6.apk'
-        Copy-Item -LiteralPath $apk -Destination $target -Force
+        $target = Join-Path $release 'CinemaHub-AndroidTV-v1.3.9.apk'
+        if (Test-Path -LiteralPath $target) {
+            if ((Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) { throw 'An APK with this version already exists. Increment the version before distributing a different build.' }
+        } else { Copy-Item -LiteralPath $apk -Destination $target }
         Get-FileHash -LiteralPath $target -Algorithm SHA256
     }
 } finally { Pop-Location }
