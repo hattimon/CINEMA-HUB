@@ -1,12 +1,20 @@
 # Historia wydań
 
-## Android 1.3.9 i panel 1.3.12 — wyszukiwanie głosowe
+## Kontener 1.3.13 — stabilna weryfikacja wyszukiwania głosowego
+
+- Testy przeglądarkowe czekają na rzeczywiste zapytanie katalogu po wyniku rozpoznawania. Usuwa to zależność od szybkości planowania efektów React, ujawnioną przez Linux amd64 i ARM64.
+- Kod APK i funkcja wyszukiwania pozostają zgodne z wydaniem Android 1.3.9. Obrazy przechodzą pełne testy przed publikacją.
+- Tagi i pliki wydania 1.3.12 są zachowane; nowe wydanie kontenera ma osobny tag v1.3.13.
+
+
+
+## Android 1.3.9 i panel 1.3.13 — wyszukiwanie głosowe
 
 - Ikona mikrofonu przy wyszukiwarce uruchamia systemowe rozpoznawanie mowy, niezależnie od dyktowania Gboard. Wynik trafia do dotychczasowego wyszukiwania z zachowaniem źródeł, filtrów i sortowania.
 - Domyślny język urządzenia, wybór 35 popularnych wariantów i własnego tagu BCP 47; zapis wyboru lokalnie. Można dyktować angielskie i inne zagraniczne tytuły. Funkcja nie tłumaczy tytułów ani całego interfejsu.
 - Systemowe okno `RecognizerIntent` i bezpośredni `SpeechRecognizer`, runtime `RECORD_AUDIO` oraz widoczność usług Androida 11–14. Przycisk pilota działa, jeśli Android dostarczy go aplikacji; w pozostałych przypadkach służy ikona ekranowa.
 - Bezpieczne rozszerzenie istniejącego `CinemaNative`, identyfikatory prób, D-pad/OK/Wstecz, anulowanie, limity, diagnostyka i zwalnianie zasobów. Bez zapisu nagrań i wysyłania audio do Cinema Hub.
-- Podpis i pakiet zgodne z poprzednim publicznym APK 1.3.7, versionCode 13. Aktualizacja wymaga nowego APK i panelu 1.3.12. Opis wydania podaje testy automatyczne i oczekującą weryfikację mikrofonu Bluetooth.
+- Podpis i pakiet zgodne z poprzednim publicznym APK 1.3.7, versionCode 13. Aktualizacja wymaga nowego APK i panelu 1.3.13. Opis wydania podaje testy automatyczne i oczekującą weryfikację mikrofonu Bluetooth.
 
 [Instrukcja i ograniczenia](docs/VOICE-SEARCH.md) · [Opis wydania Android](docs/RELEASE-ANDROID-1.3.9.md).
 
