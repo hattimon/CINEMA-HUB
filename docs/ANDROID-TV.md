@@ -1,6 +1,6 @@
 # Cinema Hub na Android TV
 
-Gotowy klient: **[CinemaHub-AndroidTV-v1.3.6.apk](https://github.com/hattimon/CINEMA-HUB/releases/latest)**. Android 6 lub nowszy; pakiet `pl.cinemahub.tv`. Klient zawiera Media3/ExoPlayer i obsługę pilota. Był przygotowywany i weryfikowany z myślą o projektorze Magcubic L018; działanie dekoderów i pilota zależy także od urządzenia.
+Klient: **[CinemaHub-AndroidTV-v1.3.9.apk](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.9/CinemaHub-AndroidTV-v1.3.9.apk)**, `versionCode 13`. Android 6 lub nowszy; pakiet `pl.cinemahub.tv`. Wyszukiwanie głosowe wymaga także panelu serwera 1.3.12. Mikrofon pilota i jakość rozpoznawania wymagają rzeczywistego testu na Magcubic L018. Klient zawiera Media3/ExoPlayer i obsługę pilota; działanie mikrofonu, dekoderów i pilota zależy od firmware urządzenia.
 
 ## Instalacja
 
@@ -10,9 +10,11 @@ Gotowy klient: **[CinemaHub-AndroidTV-v1.3.6.apk](https://github.com/hattimon/CI
 4. Uruchom Cinema Hub i wpisz IP z portem, np. `IP_SERWERA:8090` albo `IP_PI:9999`.
 5. Zaloguj się do swojego konta Cinema Hub.
 
-APK 1.3.6 w tym repozytorium jest podpisany tym samym kluczem co poprzednia wersja i działa z serwerem 1.3.7. Instaluj go jako aktualizację istniejącej Cinema Hub. Adres można zmienić przez **MENU → Adres IP / URL serwera**.
+APK 1.3.9 ma podpis zgodny z lokalnym wydaniem 1.3.6 oraz publicznym APK 1.3.7 (sprawdzono także SHA-256 pobranego wydania). Instaluj go jako aktualizację istniejącej Cinema Hub, bez odinstalowania i czyszczenia danych. Adres można zmienić przez **MENU → Adres IP / URL serwera**. Dotychczasowe funkcje działają również ze starszym serwerem; przycisk głosowy pojawia się po aktualizacji panelu.
 
 ## Aktualizacje aplikacji
+
+Nowa funkcja: [wyszukiwanie głosowe, diagnostyka i test Magcubic L018](VOICE-SEARCH.md). Wymaga przygotowanych wersji panelu 1.3.12 i Android TV 1.3.9.
 
 Cinema Hub sprawdza nowe wydanie po uruchomieniu i pyta, czy pobrać aktualizację. Ręczne sprawdzenie jest dostępne w **MENU → Sprawdź aktualizacje**. Po pobraniu APK aplikacja weryfikuje sumę SHA-256 i otwiera instalator Androida. Zatwierdź instalację na ekranie systemowym. Przy pierwszej aktualizacji włącz dla Cinema Hub opcję **Zezwalaj z tego źródła**; Android może poprosić o nią przed instalacją.
 
@@ -31,12 +33,6 @@ Cinema Hub sprawdza nowe wydanie po uruchomieniu i pyta, czy pobrać aktualizacj
 | MENU → Odśwież | Pobranie aktualnego panelu z serwera |
 
 Wybrany pełny ekran i postęp oglądania są zachowywane między odcinkami. Preferencje Autoplay i hostingu zmienisz podczas seansu.
-
-## Android TV 1.3.6
-
-Menu obrazu i dźwięku wysuwa się jako kompaktowa karta z prawej strony. Film i przyciski odtwarzacza pozostają widoczne, a tło nie jest przyciemniane. Każda droga otwarcia menu podczas seansu prowadzi do tego samego panelu. Obejmuje profile obrazu dla projektora, kino i łagodne SD, opcjonalne efekty CRT oraz wzmocnienie dźwięku.
-
-W trakcie automatycznego sprawdzania można otworzyć źródła i uruchomić wcześniej sprawdzony hosting. Ograniczenie całego portalu pokazuje licznik, jeśli portal poda czas; limit pojedynczego hostingu kieruje automat do następnego.
 
 ## Logowanie do Vider i innych źródeł
 
