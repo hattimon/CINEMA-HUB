@@ -9,6 +9,7 @@ import { isViderVideo,viderURL } from './vider-parser.mjs';
 import { viderPageReady } from './vider-page.mjs';
 import { browserHeaded } from './browser-mode.mjs';
 import { launchFilmanLogin } from './filman-login.mjs';
+import { filmanPosterURL, openFilmanPosterPage, readFilmanPoster } from './filman-posters.mjs';
 import { abortable } from './playback-work.mjs';
 
 export function decorativeVideo(address) {
@@ -66,6 +67,7 @@ async function activateCoveredHosting(page,selector) {
 
 export class SourceBrowser {
   contexts=new Map(); locks=new Map(); lease=null; cache=new Map(); htmlPending=new Map(); retired=new Set();
+  posterReaders=new WeakMap();
   async exclusive(id,work,signal) { if(process.env.BROWSER_SERIAL==='true')id='shared';const previous=this.locks.get(id)||Promise.resolve();let release;const lock=new Promise(r=>release=r);const tail=previous.catch(()=>{}).then(()=>lock);this.locks.set(id,tail);try{await abortable(previous.catch(()=>{}),signal);signal?.throwIfAborted();return await work();}finally{release();void tail.then(()=>{if(this.locks.get(id)===tail)this.locks.delete(id);});} }
   async context(source,headed=false) {
     if(this.retired.has(source.id))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});
@@ -98,6 +100,43 @@ export class SourceBrowser {
     if(process.platform!=='win32'){try{const lock=await readlink(resolve(directory,'SingletonLock'));const match=/^(.*)-(\d+)$/.exec(lock);let running=false;if(match?.[1]===hostname())try{process.kill(Number(match[2]),0);running=true;}catch{}if(match&&!running)for(const name of ['SingletonLock','SingletonCookie','SingletonSocket'])await unlink(resolve(directory,name)).catch(()=>{});}catch{}}
     return directory;
   }
+  async closeContextAfterWork(source, context) {
+    if (process.env.BROWSER_CLOSE_AFTER_WORK !== 'true' || this.lease?.sourceId === source.id || this.contexts.get(source.id) !== context) return;
+    this.contexts.delete(source.id);
+    await context.close().catch(() => {});
+  }
+  async poster(source, address) {
+    const url = filmanPosterURL(source, address);
+    if (!url) return null;
+    const acquire = async context => {
+      let reader = this.posterReaders.get(context);
+      if (!reader || reader.page.isClosed()) {
+        reader = { page: await openFilmanPosterPage(context, url.origin), pending: new Map() };
+        this.posterReaders.set(context, reader);
+      }
+      return reader;
+    };
+    const read = ({ page, pending }) => {
+      let request = pending.get(url.href);
+      if (!request) {
+        request = readFilmanPoster(page, url.href).finally(() => pending.delete(url.href));
+        pending.set(url.href, request);
+      }
+      return request;
+    };
+    const reader = await this.exclusive(source.id, async () => {
+      assertSourceAvailable(source.id);
+      const context = await this.context(source);
+      if (process.env.BROWSER_CLOSE_AFTER_WORK !== 'true') return acquire(context);
+      try {
+        return { result: await read(await acquire(context)) };
+      } finally {
+        await this.closeContextAfterWork(source, context);
+      }
+    });
+    // On the normal server, image downloads can proceed while the same profile reads the catalog.
+    return 'result' in reader ? reader.result : read(reader);
+  }
   async page(source,url,work,{signal}={}) {return this.exclusive(source.id,async()=>{
     signal?.throwIfAborted();
     assertSourceAvailable(source.id);
@@ -117,7 +156,7 @@ export class SourceBrowser {
       if(source.type==='vider')try{await page.waitForFunction(viderPageReady,null,{timeout:25000});}catch{throw Object.assign(new Error('Vider nie załadował listy filmów. Otwórz logowanie / CAPTCHA i sprawdź stronę źródła.'),{status:409});}
       if(/(?:zbyt (?:wiele|dużo).{0,35}(?:zapyt|źród)|too many requests|czasow.{0,25}blokad)/i.test((await page.locator('body').innerText()).slice(0,16000))){throw Object.assign(new Error('Portal zgłosił ograniczenie dostępu bez podania terminu odblokowania.'),{status:429});}
       return await work(page,context);
-    }finally{signal?.removeEventListener('abort',abort);await page.close().catch(()=>{});if(process.env.BROWSER_CLOSE_AFTER_WORK==='true'&&this.lease?.sourceId!==source.id){this.contexts.delete(source.id);await context.close().catch(()=>{});}}
+    }finally{signal?.removeEventListener('abort',abort);await page.close().catch(()=>{});await this.closeContextAfterWork(source,context);}
   },signal);}
   async html(source,url) {
     assertSourceAvailable(source.id);

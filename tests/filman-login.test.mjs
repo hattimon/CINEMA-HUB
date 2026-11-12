@@ -8,7 +8,7 @@ import test from 'node:test';
 
 const linuxChromium = process.platform === 'linux' && process.env.CHROMIUM_PATH && process.env.DISPLAY;
 
-test('Filman opens a regular browser and reuses the saved profile and browser user agent', { skip: !linuxChromium, timeout: 40000 }, async () => {
+test('Filman uses the saved Chromium session for the catalog and protected posters', { skip: !linuxChromium, timeout: 40000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'cinema-filman-login-'));
   process.env.DATA_DIR = directory;
   process.env.FILMAN_BROWSER_DISPLAY ||= process.env.DISPLAY;
@@ -16,6 +16,8 @@ test('Filman opens a regular browser and reuses the saved profile and browser us
   const { db } = await import('../server/store.mjs');
   const browser = new SourceBrowser();
   const observed = Promise.withResolvers();
+  const posterBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/XioAAAAASUVORK5CYII=', 'base64');
+  let redirectFollowed = false;
   const fixture = createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -28,6 +30,14 @@ test('Filman opens a regular browser and reuses the saved profile and browser us
     } else if (url.pathname === '/catalog') {
       const signedIn = String(req.headers.cookie).split('; ').includes('fixture_login=active');
       res.end(JSON.stringify({ signedIn, userAgent: req.headers['user-agent'] }));
+    } else if (url.pathname === '/public/static/poster/fixture.png') {
+      if (!String(req.headers.cookie).includes('fixture_login=active')) return res.writeHead(403, { 'cf-mitigated': 'challenge' }).end();
+      res.writeHead(200, { 'Content-Type': 'image/png' }).end(posterBytes);
+    } else if (url.pathname === '/public/static/poster/redirect.png') {
+      res.writeHead(302, { Location: '/redirect-target' }).end();
+    } else if (url.pathname === '/redirect-target') {
+      redirectFollowed = true;
+      res.end();
     } else {
       res.writeHead(404).end();
     }
@@ -52,6 +62,11 @@ test('Filman opens a regular browser and reuses the saved profile and browser us
     const catalog = await browser.page(source, catalogURL, async page => JSON.parse(await page.locator('body').innerText()));
     assert.equal(catalog.signedIn, true);
     assert.equal(catalog.userAgent, manual.userAgent);
+    const posterURL = new URL('public/static/poster/fixture.png', source.url).href;
+    assert.equal((await fetch(posterURL)).status, 403);
+    assert.deepEqual(await browser.poster(source, posterURL), { type: 'image/png', body: posterBytes });
+    assert.equal(await browser.poster(source, new URL('public/static/poster/redirect.png', source.url).href), null);
+    assert.equal(redirectFollowed, false);
   } finally {
     clearTimeout(deadline);
     await browser.close();

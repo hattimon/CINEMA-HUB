@@ -1,5 +1,9 @@
 # Historia wydań
 
+## Kontener 1.3.17 – okładki Filmana
+
+- Okładki są pobierane przez zapisaną sesję Chromium Filmana. Wydanie zawiera również poprawkę ręcznego logowania i zapisu profilu z 1.3.16. [Opis wydania](docs/RELEASE-1.3.17.md)
+
 ## Kontener 1.3.16 – logowanie do Filmana
 
 - Formularz logowania Filmana otwiera się w zwykłym Chromium w oknie **Zaloguj / CAPTCHA**.

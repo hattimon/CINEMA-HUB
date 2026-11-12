@@ -12,6 +12,7 @@ import { catalog,detail,przystanEntries } from './adapters.mjs';
 import { combineCatalog } from './catalog-match.mjs';
 import { itemLinks } from './catalog-links.mjs';
 import { sourceBrowser } from './browser.mjs';
+import { filmanPosterURL } from './filman-posters.mjs';
 import { beginCheck,cancelCheck,orderHostingLinks,checkFor,playbackFor,playbacks,relay,serveInternal,exportToDevice,downloadFor,updateDownload,freshPlayback,cancelDownload,activeDownloads,forgetSource,downloadActive } from './media.mjs';
 import { sourceErrorMessage } from './source-errors.mjs';
 import { basicHeaders,textRequest,networkURL,safeRequest,readBounded } from './net.mjs';
@@ -134,7 +135,27 @@ app.put('/api/items/:id/favorite',auth,(req,res,next)=>{try{getItem(req.params.i
 app.get('/api/library/:kind',auth,(req,res)=>{const rows=req.params.kind==='continue'?db.prepare('SELECT DISTINCT i.value FROM items i JOIN progress p ON p.item_id=i.id JOIN sources s ON s.id=i.source_id WHERE p.user_id=? AND s.user_id=? ORDER BY p.updated DESC').all(req.user.id,req.user.id):db.prepare('SELECT i.value FROM items i JOIN favorites f ON f.item_id=i.id JOIN sources s ON s.id=i.source_id WHERE f.user_id=? AND s.user_id=? AND f.kind=? ORDER BY f.created DESC').all(req.user.id,req.user.id,req.params.kind==='watchlist'?'watchlist':'favorite');res.json(rows.map(r=>decorateItem(JSON.parse(r.value),req.user.id)));});
 app.put('/api/items/:id/progress',auth,(req,res,next)=>{try{const item=getItem(req.params.id,req.user.id);const b=z.object({episode:z.string().max(2048).default(''),position:z.number().finite().min(0).max(360000),duration:z.number().finite().min(0).max(360000),completed:z.boolean().default(false),season:z.number().int().min(0).max(1000).optional(),number:z.number().int().min(0).max(10000).optional(),title:z.string().max(160).optional(),updatedAt:z.number().int().min(0).max(now()+60_000).optional()}).parse(req.body);saveProgress(item,req.user.id,b);res.json({ok:true});}catch(e){next(e);}});
 app.get('/api/items/:id/progress',auth,(req,res,next)=>{try{res.json(getProgress(getItem(req.params.id,req.user.id),req.user.id));}catch(e){next(e);}});
-app.get('/api/poster/:id',auth,asyncRoute(async(req,res)=>{const item=getItem(req.params.id,req.user.id);if(!item.poster)return res.status(404).end();const source=getSource(item.sourceId,req.user.id);const headers=source.type==='plex'?{'X-Plex-Token':source.credentials.token||''}:basicHeaders(source.credentials);if(new URL(item.poster).origin!==networkURL(source.url).origin)for(const key of Object.keys(headers))delete headers[key];const upstream=await safeRequest(item.poster,{headers,allowedOrigins:[networkURL(source.url).origin]});const type=String(upstream.headers['content-type']||'');if(upstream.statusCode!==200||!type.startsWith('image/')){upstream.destroy();return res.status(404).end();}res.set('Cache-Control','private, max-age=3600').type(type).send(await readBounded(upstream,8*1024*1024));}));
+app.get('/api/poster/:id',auth,asyncRoute(async(req,res)=>{
+  const item=getItem(req.params.id,req.user.id);
+  if(!item.poster)return res.status(404).end();
+  const source=getSource(item.sourceId,req.user.id);
+  if(filmanPosterURL(source,item.poster)){
+    const poster=await sourceBrowser.poster(source,item.poster);
+    if(!poster)return res.status(404).end();
+    return res.set('Cache-Control','private, max-age=3600').type(poster.type).send(poster.body);
+  }
+
+  const sourceOrigin=networkURL(source.url).origin;
+  const headers=networkURL(item.poster).origin!==sourceOrigin ? {} :
+    source.type==='plex' ? {'X-Plex-Token':source.credentials.token||''} : basicHeaders(source.credentials);
+  const upstream=await safeRequest(item.poster,{headers,allowedOrigins:[sourceOrigin]});
+  const type=String(upstream.headers['content-type']||'');
+  if(upstream.statusCode!==200||!type.startsWith('image/')){
+    upstream.destroy();
+    return res.status(404).end();
+  }
+  res.set('Cache-Control','private, max-age=3600').type(type).send(await readBounded(upstream,8*1024*1024));
+}));
 app.get('/api/playback/:id/media',auth,asyncRoute(async(req,res)=>relay(playbackFor(req.params.id,req.user.id),req,res,{prefix:`/api/playback/${req.params.id}`})));
 app.get('/api/playback/:id/asset/:asset',auth,asyncRoute(async(req,res)=>relay(playbackFor(req.params.id,req.user.id),req,res,{prefix:`/api/playback/${req.params.id}`,assetId:req.params.asset})));
 app.get('/internal/export/:token/media',asyncRoute(serveInternal));app.get('/internal/export/:token/asset/:asset',asyncRoute(serveInternal));
