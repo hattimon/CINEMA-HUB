@@ -1,5 +1,11 @@
 # Historia wydań
 
+## Kontener 1.3.16 – logowanie do Filmana
+
+- Formularz logowania Filmana otwiera się w zwykłym Chromium w oknie **Zaloguj / CAPTCHA**.
+- Zakończenie logowania zapisuje profil przed ponownym użyciem sesji w katalogu.
+- Wydanie obrazu dla amd64 i ARM64 wraz z aktualizacją wpisu Cinema Hub w DCC. [Opis i aktualizacja](docs/RELEASE-1.3.16.md)
+
 ## Kontener 1.3.15 — poziom dźwięku w odtwarzaczu przeglądarkowym
 
 - 250% i 300%, AUTO oraz Normalizer dodane do menu przeglądarkowego na komputerze.

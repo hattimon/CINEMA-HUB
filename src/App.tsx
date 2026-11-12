@@ -17,8 +17,22 @@ const isPortalSource=(type?:string)=>type==='filman'||type==='vider';
 
 function Connect({onExit}:{onExit:()=>void}) {
   const[active,setActive]=useState(false),[error,setError]=useState(''),[scale,setScale]=useState(.85),[fit,setFit]=useState(true);const box=useRef<HTMLDivElement>(null);
+  const [saving,setSaving]=useState(false);
   useEffect(()=>{let alive=true;const update=()=>void api<{active:boolean}>('/browser/session').then(v=>{if(alive)setActive(v.active);}).catch(e=>{if(alive)setError(e.message);});update();const timer=setInterval(update,2000);return()=>{alive=false;clearInterval(timer);};},[]);
-  return <main className="connect-page" ref={box}><header><div className="brand"><Film/> CINEMA HUB</div><p>Zaloguj się i wykonaj CAPTCHA ręcznie. W trybie przewijania użyj pasków po prawej i na dole.</p><div className="connect-controls"><button className="button secondary" onClick={()=>setFit(!fit)}>{fit?'Włącz przewijanie':'Dopasuj do okna'}</button><button className="icon-button" aria-label="Zmniejsz widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.max(.5,v-.1));}}><Minus/></button><span>{Math.round(scale*100)}%</span><button className="icon-button" aria-label="Powiększ widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.min(1.5,v+.1));}}><Plus/></button><button className="button secondary" onClick={()=>{if(document.fullscreenElement)void document.exitFullscreen();else void box.current?.requestFullscreen().catch(()=>setError('Użyj F11, aby otworzyć pełny ekran przeglądarki.'));}}><Maximize size={16}/>Pełny ekran</button><button className="button primary" onClick={async()=>{await api('/browser/finish',{});onExit();}}>Zakończ i zachowaj sesję</button></div></header>{active?<div className={'connect-viewport '+(fit?'fit':'scroll')}><div className="connect-canvas" style={fit?undefined:{width:1600*scale,height:1200*scale}}><iframe title="Przeglądarka logowania źródła" style={fit?undefined:{width:1600,height:1200,transform:'scale('+scale+')',transformOrigin:'top left'}} src={'/browser/vnc.html?autoconnect=1&resize='+(fit?'scale':'off')+'&path=browser/websockify'}/></div></div>:<Empty title="Przeglądarka źródła" description={error||'Otwórz logowanie w Ustawienia → Źródła. Ta karta jest dostępna wyłącznie dla właściciela sesji.'} action={<button className="button secondary" onClick={onExit}>Wróć do panelu</button>}/>}</main>;
+  async function finish() {
+    setSaving(true);
+    setError('');
+    try {
+      const result=await api<{ok:boolean}>('/browser/finish',{});
+      if(result.ok)onExit();
+      else setError('Okno logowania jest zamknięte. Wróć do panelu i sprawdź źródło.');
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Nie udało się zapisać sesji.');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <main className="connect-page" ref={box}><header><div className="brand"><Film/> CINEMA HUB</div><p>Wykonaj weryfikację i zaloguj się w tym oknie. W trybie przewijania użyj pasków po prawej i na dole.</p><div className="connect-controls"><button className="button secondary" onClick={()=>setFit(!fit)}>{fit?'Włącz przewijanie':'Dopasuj do okna'}</button><button className="icon-button" aria-label="Zmniejsz widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.max(.5,v-.1));}}><Minus/></button><span>{Math.round(scale*100)}%</span><button className="icon-button" aria-label="Powiększ widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.min(1.5,v+.1));}}><Plus/></button><button className="button secondary" onClick={()=>{if(document.fullscreenElement)void document.exitFullscreen();else void box.current?.requestFullscreen().catch(()=>setError('Użyj F11, aby otworzyć pełny ekran przeglądarki.'));}}><Maximize size={16}/>Pełny ekran</button><button className="button primary" disabled={!active||saving} onClick={finish}>{saving?'Zapisuję sesję…':'Zakończ i zachowaj sesję'}</button></div>{active&&error?<p role="alert">{error}</p>:null}</header>{active?<div className={'connect-viewport '+(fit?'fit':'scroll')}><div className="connect-canvas" style={fit?undefined:{width:1600*scale,height:1200*scale}}><iframe title="Przeglądarka logowania źródła" style={fit?undefined:{width:1600,height:1200,transform:'scale('+scale+')',transformOrigin:'top left'}} src={'/browser/vnc.html?autoconnect=1&resize='+(fit?'scale':'off')+'&path=browser/websockify'}/></div></div>:<Empty title="Przeglądarka źródła" description={error||'Otwórz logowanie w Ustawienia → Źródła. Ta karta jest dostępna wyłącznie dla właściciela sesji.'} action={<button className="button secondary" onClick={onExit}>Wróć do panelu</button>}/>}</main>;
 }
 
 export default function App() {

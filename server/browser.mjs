@@ -8,6 +8,7 @@ import { assertSourceAvailable,blockSource,parseRetryAfter } from './limits.mjs'
 import { isViderVideo,viderURL } from './vider-parser.mjs';
 import { viderPageReady } from './vider-page.mjs';
 import { browserHeaded } from './browser-mode.mjs';
+import { launchFilmanLogin } from './filman-login.mjs';
 import { abortable } from './playback-work.mjs';
 
 export function decorativeVideo(address) {
@@ -71,17 +72,31 @@ export class SourceBrowser {
     if(process.env.BROWSER_SERIAL==='true'&&this.lease&&this.lease.sourceId!==source.id)throw Object.assign(new Error('Trwa ręczne logowanie do źródła. Zakończ je przed sprawdzaniem innego konta.'),{status:409});
     if(this.lease && (this.lease.sourceId!==source.id || !headed) && this.lease.sourceId===source.id) throw Object.assign(new Error('Zakończ ręczne logowanie do tego źródła.'),{status:409});
     const existing=this.contexts.get(source.id);if(existing)return existing;
-    const directory=resolve(dataDir,'browser',source.id);await mkdir(directory,{recursive:true,mode:0o700});
-    // Chromium leaves host/PID symlinks after a container replacement. Remove only stale locks from this source's own profile.
-    if(process.platform!=='win32'){try{const lock=await readlink(resolve(directory,'SingletonLock'));const match=/^(.*)-(\d+)$/.exec(lock);let running=false;if(match?.[1]===hostname())try{process.kill(Number(match[2]),0);running=true;}catch{}if(match&&!running)for(const name of ['SingletonLock','SingletonCookie','SingletonSocket'])await unlink(resolve(directory,name)).catch(()=>{});}catch{}}
-    const executablePath=process.env.CHROMIUM_PATH;
-    // Keep the same normal Chromium mode for login and later portal reads.
-    // Xvfb is already available in containers; CAPTCHA remains user-operated.
-    const visible=browserHeaded(source.type,headed);
-    const context=await chromium.launchPersistentContext(directory,{timeout:30000,headless:!visible,executablePath:executablePath||undefined,viewport:headed?null:{width:1280,height:800},acceptDownloads:false,serviceWorkers:'block',args:['--disable-dev-shm-usage','--disk-cache-size=1','--media-cache-size=1','--autoplay-policy=no-user-gesture-required',...(visible?['--window-size=1600,1160','--window-position=0,0']:[])],userAgent:'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'});
+    const directory=await this.profileDirectory(source.id);
+    const filmanDisplay=source.type==='filman'&&!headed ? process.env.FILMAN_BROWSER_DISPLAY : undefined;
+    const visible=!!filmanDisplay||browserHeaded(source.type,headed);
+    const context=await chromium.launchPersistentContext(directory,{
+      timeout:30000,
+      headless:!visible,
+      executablePath:process.env.CHROMIUM_PATH||undefined,
+      viewport:headed?null:{width:1280,height:800},
+      acceptDownloads:false,
+      serviceWorkers:'block',
+      args:['--disable-dev-shm-usage','--disk-cache-size=1','--media-cache-size=1','--autoplay-policy=no-user-gesture-required',...(visible?['--window-size=1600,1160','--window-position=0,0']:[])],
+      // Filman uses Chromium's own user agent in both the login window and catalog requests.
+      ...(filmanDisplay ? {env:{...process.env,DISPLAY:filmanDisplay}} : {}),
+      ...(source.type!=='filman' ? {userAgent:'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'} : {}),
+    });
     await context.route('**/*',async route=>{const address=route.request().url();if(isAdvertisement(address))return route.abort();return route.continue();});
     context.on('page',page=>{if(!headed)page.on('popup',popup=>{if(isAdvertisement(popup.url()))popup.close().catch(()=>{});});});
     this.contexts.set(source.id,context);return context;
+  }
+  async profileDirectory(sourceId) {
+    if(this.retired.has(sourceId))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});
+    const directory=resolve(dataDir,'browser',sourceId);await mkdir(directory,{recursive:true,mode:0o700});
+    // Chromium leaves host/PID symlinks after a container replacement. Remove only stale locks from this source's own profile.
+    if(process.platform!=='win32'){try{const lock=await readlink(resolve(directory,'SingletonLock'));const match=/^(.*)-(\d+)$/.exec(lock);let running=false;if(match?.[1]===hostname())try{process.kill(Number(match[2]),0);running=true;}catch{}if(match&&!running)for(const name of ['SingletonLock','SingletonCookie','SingletonSocket'])await unlink(resolve(directory,name)).catch(()=>{});}catch{}}
+    return directory;
   }
   async page(source,url,work,{signal}={}) {return this.exclusive(source.id,async()=>{
     signal?.throwIfAborted();
@@ -120,15 +135,67 @@ export class SourceBrowser {
     this.htmlPending.set(key,pending);return pending;
   }
   async openLogin(source,userId) {
-    if(this.lease && this.lease.userId!==userId)throw Object.assign(new Error('Inny użytkownik kończy logowanie. Spróbuj później.'),{status:409});
-    if(this.lease?.sourceId===source.id)return {url:'/connect',expires:this.lease.expires};
-    if(this.lease)await this.finishLogin(userId);
-    return this.exclusive(source.id,async()=>{const old=this.contexts.get(source.id);if(old){await old.close();this.contexts.delete(source.id);} const context=await this.context(source,true);const pages=context.pages();const page=pages[0]||await context.newPage();
-      this.lease={userId,sourceId:source.id,expires:Date.now()+15*60*1000};
+    const open=()=>this.exclusive(source.id,async()=>{
+      if(this.lease && this.lease.userId!==userId)throw Object.assign(new Error('Inny użytkownik kończy logowanie. Spróbuj później.'),{status:409});
+      if(this.lease?.sourceId===source.id&&!this.lease.finishing)return {url:'/connect',expires:this.lease.expires};
+      if(this.lease)await this.finishLogin(userId);
+
+      // In serial mode catalog windows can use the shared display. Close them before granting noVNC access.
+      for(const [id,context] of this.contexts){
+        if(id!==source.id&&process.env.BROWSER_SERIAL!=='true')continue;
+        await context.close();
+        this.contexts.delete(id);
+      }
+
+      const lease={userId,sourceId:source.id,expires:Date.now()+15*60*1000};
+      if(source.type==='filman'&&process.platform==='linux'&&process.env.CHROMIUM_PATH&&process.env.DISPLAY){
+        const directory=await this.profileDirectory(source.id);
+        const loginURL=new URL('/logowanie',source.url).href;
+        lease.browser=await launchFilmanLogin(process.env.CHROMIUM_PATH,directory,loginURL);
+        this.lease=lease;
+        void lease.browser.exited.then(()=>{
+          if(this.lease===lease&&!lease.finishing){
+            this.clearSourceCache(source.id);
+            this.endLogin(lease);
+          }
+        });
+        return {url:'/connect',expires:lease.expires};
+      }
+
+      const context=await this.context(source,true);
+      const page=context.pages()[0]||await context.newPage();
+      this.lease=lease;
       try {await page.goto(source.url,{waitUntil:'domcontentloaded',timeout:35000});const login=page.locator('a[href]').filter({hasText:/Zaloguj|Logowanie|Log in|Sign in/i}).first();if(await login.count()){const href=await login.getAttribute('href');if(href){const url=new URL(href,page.url());if(url.origin===new URL(source.url).origin||source.type==='vider'&&viderURL(url.href,source.url))await page.goto(url.href,{waitUntil:'domcontentloaded'});}}} catch { /* The user can navigate or complete a challenge in the visible browser. */ }
-      return {url:'/connect',expires:this.lease.expires};});
+      return {url:'/connect',expires:lease.expires};
+    });
+    return process.env.BROWSER_SERIAL==='true' ? open() : this.exclusive('manual-login',open);
   }
-  async finishLogin(userId) {if(!this.lease||this.lease.userId!==userId)return false;const id=this.lease.sourceId;const context=this.contexts.get(id);this.lease=null;this.contexts.delete(id);for(const key of this.cache.keys())if(key.startsWith(id+':'))this.cache.delete(key);if(context)await context.close().catch(()=>{});return true;}
+  clearSourceCache(id) {
+    for(const key of this.cache.keys())if(key.startsWith(id+':'))this.cache.delete(key);
+  }
+  endLogin(lease) {
+    if(this.lease!==lease)return;
+    this.lease=null;
+    this.onLoginEnd?.();
+  }
+  async finishLogin(userId) {
+    const lease=this.lease;
+    if(!lease||lease.userId!==userId)return false;
+    if(lease.finishing)return lease.finishing;
+    const {sourceId}=lease;
+    lease.finishing=(async()=>{
+      try {
+        if(lease.browser)await lease.browser.close();
+        else await this.contexts.get(sourceId)?.close();
+        return true;
+      } finally {
+        this.contexts.delete(sourceId);
+        this.clearSourceCache(sourceId);
+        this.endLogin(lease);
+      }
+    })();
+    return lease.finishing;
+  }
   async removeSource(id,removeConfiguration) {
     if(!/^[a-f0-9]{32}$/.test(id))throw new Error('Nieprawidłowy identyfikator źródła.');
     const root=resolve(dataDir,'browser'),directory=resolve(root,id);
@@ -139,10 +206,10 @@ export class SourceBrowser {
     }
     this.retired.add(id);
     try{return await this.exclusive(id,async()=>{
-      if(this.lease?.sourceId===id){this.lease=null;}
+      if(this.lease?.sourceId===id)await this.finishLogin(this.lease.userId);
       const context=this.contexts.get(id);this.contexts.delete(id);
       if(context)await context.close();
-      for(const key of this.cache.keys())if(key.startsWith(id+':'))this.cache.delete(key);
+      this.clearSourceCache(id);
       await rm(directory,{recursive:true,force:true});
       return removeConfiguration();
     });}catch(error){this.retired.delete(id);throw error;}
@@ -359,6 +426,10 @@ export class SourceBrowser {
       }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);context.off('page',newPage);context.off('request',requestObserver);context.off('response',responseObserver);for(const target of pages)if(target!==page)await target.close().catch(()=>{});}
     },{signal});
   }
-  async close() {for(const context of this.contexts.values())await context.close().catch(()=>{});this.contexts.clear();}
+  async close() {
+    if(this.lease)await this.finishLogin(this.lease.userId).catch(()=>{});
+    for(const context of this.contexts.values())await context.close().catch(()=>{});
+    this.contexts.clear();
+  }
 }
 export const sourceBrowser=new SourceBrowser();
