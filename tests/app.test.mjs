@@ -973,7 +973,7 @@ test('Fullscreen browser menu dialogs retain the active movie',{skip:!hasTools||
 
 test('Catalog page reads are coalesced per account and source, without caching failures',async()=>{
   const {SourceBrowser}=await import('../server/browser.mjs'),browser=new SourceBrowser();let reads=0,finish;
-  const source={id:'coalesce-source',type:'filman'},page={waitForFunction:async()=>{},content:async()=>'<p>cached catalog</p>',evaluate:async()=>false};
+  const source={id:'coalesce-source',type:'filman',url:origin+'/'},page={waitForFunction:async()=>{},content:async()=>'<p>cached catalog</p>',evaluate:async()=>'signed-in'};
   browser.page=async(_source,_url,work)=>{reads++;await new Promise(resolve=>finish=resolve);return work(page);};
   const a=browser.html(source,origin+'/catalog'),b=browser.html(source,origin+'/catalog');assert.equal(reads,1);finish();assert.deepEqual(await Promise.all([a,b]),['<p>cached catalog</p>','<p>cached catalog</p>']);assert.equal(await browser.html(source,origin+'/catalog'),'<p>cached catalog</p>');assert.equal(reads,1);
   browser.page=async()=>{reads++;throw Error('offline');};await assert.rejects(browser.html(source,origin+'/failed'));await assert.rejects(browser.html(source,origin+'/failed'));assert.equal(reads,3);assert.equal(browser.htmlPending.size,0);

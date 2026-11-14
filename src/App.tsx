@@ -15,16 +15,43 @@ const titles:Record<string,string>={all:'Twój wieczór. Twój wybór.',movies:'
 const initialSettings:Settings={theme:'violet',style:'cinematic',posterScale:100,combineSources:false,videoEffect:'none',imageProfile:'natural',volumeBoost:100,audioMode:'manual',normalizerTargetDb:-21,sounds:true,soundVolume:50,soundStyle:'soft',autoplay:false,autoFallback:true,preferredVersion:'Lektor',preferredHosts:['voe.sx','',''],defaultSources:[],defaultDestination:'device'};
 const isPortalSource=(type?:string)=>type==='filman'||type==='vider';
 
-function Connect({onExit}:{onExit:()=>void}) {
+function returnFromConnect(saved=false) {
+  if (window.opener && !window.opener.closed) {
+    if (saved) window.opener.postMessage('cinema-source-session-saved',window.location.origin);
+    window.close();
+    if (window.closed) return;
+  }
+  window.location.assign('/');
+}
+
+function Connect() {
   const[active,setActive]=useState(false),[error,setError]=useState(''),[scale,setScale]=useState(.85),[fit,setFit]=useState(true);const box=useRef<HTMLDivElement>(null);
   const [saving,setSaving]=useState(false);
-  useEffect(()=>{let alive=true;const update=()=>void api<{active:boolean}>('/browser/session').then(v=>{if(alive)setActive(v.active);}).catch(e=>{if(alive)setError(e.message);});update();const timer=setInterval(update,2000);return()=>{alive=false;clearInterval(timer);};},[]);
+  const sessionId=new URLSearchParams(window.location.search).get('session');
+  useEffect(()=>{
+    if(!sessionId)return;
+    const controller=new AbortController();
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    async function update() {
+      try {
+        const session=await api<{active:boolean;saved:boolean}>('/browser/session?session='+encodeURIComponent(sessionId??''),undefined,undefined,{signal:controller.signal,timeoutMs:5000});
+        if(controller.signal.aborted)return;
+        if(session.saved){returnFromConnect(true);return;}
+        setActive(session.active);
+      } catch(failure) {
+        if(!controller.signal.aborted)setError((failure as Error).message);
+      }
+      if(!controller.signal.aborted)timer=setTimeout(update,1500);
+    }
+    void update();
+    return()=>{controller.abort();clearTimeout(timer);};
+  },[sessionId]);
   async function finish() {
     setSaving(true);
     setError('');
     try {
-      const result=await api<{ok:boolean}>('/browser/finish',{});
-      if(result.ok)onExit();
+      const result=await api<{ok:boolean}>('/browser/finish',{sessionId});
+      if(result.ok)returnFromConnect(true);
       else setError('Okno logowania jest zamknięte. Wróć do panelu i sprawdź źródło.');
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Nie udało się zapisać sesji.');
@@ -32,10 +59,11 @@ function Connect({onExit}:{onExit:()=>void}) {
       setSaving(false);
     }
   }
-  return <main className="connect-page" ref={box}><header><div className="brand"><Film/> CINEMA HUB</div><p>Wykonaj weryfikację i zaloguj się w tym oknie. W trybie przewijania użyj pasków po prawej i na dole.</p><div className="connect-controls"><button className="button secondary" onClick={()=>setFit(!fit)}>{fit?'Włącz przewijanie':'Dopasuj do okna'}</button><button className="icon-button" aria-label="Zmniejsz widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.max(.5,v-.1));}}><Minus/></button><span>{Math.round(scale*100)}%</span><button className="icon-button" aria-label="Powiększ widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.min(1.5,v+.1));}}><Plus/></button><button className="button secondary" onClick={()=>{if(document.fullscreenElement)void document.exitFullscreen();else void box.current?.requestFullscreen().catch(()=>setError('Użyj F11, aby otworzyć pełny ekran przeglądarki.'));}}><Maximize size={16}/>Pełny ekran</button><button className="button primary" disabled={!active||saving} onClick={finish}>{saving?'Zapisuję sesję…':'Zakończ i zachowaj sesję'}</button></div>{active&&error?<p role="alert">{error}</p>:null}</header>{active?<div className={'connect-viewport '+(fit?'fit':'scroll')}><div className="connect-canvas" style={fit?undefined:{width:1600*scale,height:1200*scale}}><iframe title="Przeglądarka logowania źródła" style={fit?undefined:{width:1600,height:1200,transform:'scale('+scale+')',transformOrigin:'top left'}} src={'/browser/vnc.html?autoconnect=1&resize='+(fit?'scale':'off')+'&path=browser/websockify'}/></div></div>:<Empty title="Przeglądarka źródła" description={error||'Otwórz logowanie w Ustawienia → Źródła. Ta karta jest dostępna wyłącznie dla właściciela sesji.'} action={<button className="button secondary" onClick={onExit}>Wróć do panelu</button>}/>}</main>;
+  return <main className="connect-page" ref={box}><header><div className="brand"><Film/> CINEMA HUB</div><p>Jeśli portal poprosi, przejdź weryfikację i zaloguj się. Cinema Hub sam zapisze potwierdzoną sesję Filmana.</p><div className="connect-controls"><button className="button secondary" onClick={()=>setFit(!fit)}>{fit?'Włącz przewijanie':'Dopasuj do okna'}</button><button className="icon-button" aria-label="Zmniejsz widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.max(.5,v-.1));}}><Minus/></button><span>{Math.round(scale*100)}%</span><button className="icon-button" aria-label="Powiększ widok przeglądarki" onClick={()=>{setFit(false);setScale(v=>Math.min(1.5,v+.1));}}><Plus/></button><button className="button secondary" onClick={()=>{if(document.fullscreenElement)void document.exitFullscreen();else void box.current?.requestFullscreen().catch(()=>setError('Użyj F11, aby otworzyć pełny ekran przeglądarki.'));}}><Maximize size={16}/>Pełny ekran</button><button className="button primary" disabled={!active||saving} onClick={finish}>{saving?'Zapisuję sesję…':'Zakończ i zachowaj sesję'}</button></div>{active&&error?<p role="alert">{error}</p>:null}</header>{active?<div className={'connect-viewport '+(fit?'fit':'scroll')}><div className="connect-canvas" style={fit?undefined:{width:1600*scale,height:1200*scale}}><iframe title="Przeglądarka logowania źródła" style={fit?undefined:{width:1600,height:1200,transform:'scale('+scale+')',transformOrigin:'top left'}} src={'/browser/vnc.html?autoconnect=1&resize='+(fit?'scale':'off')+'&path=browser/websockify'}/></div></div>:<Empty title="Przeglądarka źródła" description={error||'Otwórz logowanie w Ustawienia → Źródła. Ta karta jest dostępna wyłącznie dla właściciela sesji.'} action={<button className="button secondary" onClick={()=>returnFromConnect()}>Wróć do panelu</button>}/>}</main>;
 }
 
 export default function App() {
+  const isConnect=window.location.pathname==='/connect';
   const[user,setUser]=useState<User|null>(null),[boot,setBoot]=useState(true),[settings,setSettings]=useState(initialSettings),[sources,setSources]=useState<Source[]>([]),[destinations,setDestinations]=useState<Destination[]>([]),[selected,setSelected]=useState<string[]>([]),[view,setView]=useState('all'),[groups,setGroups]=useState<Group[]>([]),[items,setItems]=useState<Item[]>([]),[history,setHistory]=useState<Item[]>([]),[errors,setErrors]=useState<{sourceName:string;message:string}[]>([]),[busy,setBusy]=useState(false),[query,setQuery]=useState(''),[appliedQuery,setAppliedQuery]=useState(''),[draft,setDraft]=useState<Record<string,string[]>>({}),[applied,setApplied]=useState<Record<string,string[]>>({}),[sort,setSort]=useState(''),[page,setPage]=useState(1),[folder,setFolder]=useState(''),[toast,setToast]=useState(''),[detail,setDetail]=useState<Item|null>(null),[detailBusy,setDetailBusy]=useState(false),[episodesExpanded,setEpisodesExpanded]=useState(true),[linksBusy,setLinksBusy]=useState(false),[season,setSeason]=useState<number>(1),[episode,setEpisode]=useState<Episode|undefined>(),[links,setLinks]=useState<{id:string;host:string;version:string;quality:string}[]>([]),[check,setCheck]=useState<Check|null>(null),[checkId,setCheckId]=useState(''),[checkBusy,setCheckBusy]=useState(false),[version,setVersion]=useState('all'),[player,setPlayer]=useState<PlayerState|null>(null),[saveSource,setSaveSource]=useState<Playable|null>(null),[saveDestination,setSaveDestination]=useState('device'),[downloadJobs,setDownloadJobs]=useState<DownloadJob[]>([]),[startDeviceQueue,setStartDeviceQueue]=useState(false),[deviceItems,setDeviceItems]=useState<Item[]>([]);
   const sourceSection=useRef<HTMLElement>(null),jumpToSources=useRef(false);
   const [playerDetailsOpen,setPlayerDetailsOpen]=useState(false);
@@ -64,12 +92,20 @@ export default function App() {
   },[user?.id]);
   useEffect(()=>{document.documentElement.dataset.theme=settings.theme;document.documentElement.dataset.style=settings.style;document.documentElement.style.setProperty('--poster-scale',String((settings.posterScale??100)/100));},[settings.theme,settings.style,settings.posterScale]);
   const sound=(e:React.MouseEvent)=>{if(settings.sounds&&!(e.target as HTMLElement).closest('[data-sound-preview]')&&(e.target as HTMLElement).closest('button,a,summary'))tone(settings.soundStyle,settings.soundVolume??50);};
-  const load=async()=>{if(!user)return;if(!sources.length){request.current++;setItems([]);setGroups([]);setHistory([]);setErrors([]);setBusy(false);return;}const sequence=++request.current;setBusy(true);setErrors([]);try{
+  const load=async()=>{if(!user||isConnect)return;if(!sources.length){request.current++;setItems([]);setGroups([]);setHistory([]);setErrors([]);setBusy(false);return;}const sequence=++request.current;setBusy(true);setErrors([]);try{
     if(['favorite','watchlist','continue'].includes(view)){const result=await api<Item[]>('/library/'+view);if(sequence===request.current){setItems(result.map(withLocalProgress).filter(i=>selected.includes(i.sourceId)));setGroups([]);}}
     else if(view==='downloads'){const result=await api<DownloadJob[]>('/downloads');if(sequence===request.current)setDownloadJobs(result);}
     else if(view!=='settings'){void api<Item[]>('/library/continue').then(progress=>{if(sequence===request.current)setHistory(progress.map(withLocalProgress).filter(i=>selected.includes(i.sourceId)&&!i.progress?.completed));}).catch(()=>{});const result=await api<{groups:Group[];errors:{sourceName:string;message:string}[]}>('/catalog',{sources:!appliedQuery&&folderSource?[folderSource]:selected,kind:view,query:appliedQuery,filters:{...applied,...(sort?{sort:[sort]}:{})},page,folder:!appliedQuery&&folderSource?folder:''});if(sequence===request.current){setGroups(result.groups);setItems(result.groups.flatMap(g=>g.items));setErrors(result.errors);}}
   }catch(e){if(sequence===request.current)message((e as Error).message);}finally{if(sequence===request.current)setBusy(false);}};
-  useEffect(()=>{void load();},[user?.id,sources,selected,view,appliedQuery,applied,sort,page,folder,folderSource,settings.combineSources]);
+  const [catalogRefresh,setCatalogRefresh]=useState(0);
+  useEffect(()=>{
+    function sessionSaved(event:MessageEvent) {
+      if(event.origin===window.location.origin&&event.data==='cinema-source-session-saved')setCatalogRefresh(value=>value+1);
+    }
+    window.addEventListener('message',sessionSaved);
+    return()=>window.removeEventListener('message',sessionSaved);
+  },[]);
+  useEffect(()=>{void load();},[user?.id,sources,selected,view,appliedQuery,applied,sort,page,folder,folderSource,settings.combineSources,catalogRefresh]);
   useEffect(()=>{if(busy)return;const frame=requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));return()=>cancelAnimationFrame(frame);},[busy,page,view,appliedQuery,applied,sort,folder,folderSource]);
   useEffect(()=>{if(!user||view!=='downloads'&&!startDeviceQueue)return;let alive=true;const timer=setInterval(()=>void api<DownloadJob[]>('/downloads').then(j=>{if(alive)setDownloadJobs(j);}).catch(()=>{}),2000);return()=>{alive=false;clearInterval(timer);};},[user?.id,view,startDeviceQueue]);
   const beginDeviceDownload=(job:DownloadJob)=>{launchedDevice.current.add(job.id);const a=document.createElement('a');a.href='/api/downloads/'+job.id+'/file';a.download=job.filename;document.body.appendChild(a);a.click();a.remove();};
@@ -108,7 +144,7 @@ export default function App() {
   const chooseFolder=async(files:FileList)=>{let source=sources.find(s=>s.type==='device');if(!source){source=await api<Source>('/sources',{name:'Pliki z urządzenia',type:'device',url:'device:',credentials:{}});await refresh();}const videoFiles=[...files].filter(f=>/\.(mp4|webm|m4v|mkv|mov)$/i.test(f.name)).slice(0,1000);const metadata=videoFiles.map(f=>{const path=f.webkitRelativePath||f.name;localFiles.current.set('device:'+path,f);return {name:f.name,path};});const result=await api<Item[]>('/sources/'+source.id+'/device-index',{files:metadata});setDeviceItems(result);setSelected([source.id]);changeView('all');message('Dodano '+result.length+' lokalnych plików bez przesyłania ich do kontenera.');};
   if(boot)return <main className="boot"><Busy label="Otwieram Twoje kino…"/></main>;
   if(!user)return <Login onLogin={setUser}/>;
-  if(window.location.pathname==='/connect')return <Connect onExit={()=>{window.location.assign('/');}}/>;
+  if(isConnect)return <Connect/>;
   const activeSources=sources.filter(s=>s.enabled),schema:Filter[]=groups.find(g=>g.filters.length)?.filters||[],mainItems=[...items,...deviceItems.filter(i=>selected.includes(i.sourceId)&&!items.some(x=>x.id===i.id))].filter(i=>!appliedQuery||!i.url.startsWith('device:')||i.title.toLowerCase().includes(appliedQuery.toLowerCase()));
   const showIntro=page===1&&!appliedQuery&&!Object.values(applied).some(a=>a.length)&&!sort&&!folder&&!folderSource;
   const recommendations=view==='all'&&showIntro?groups.flatMap(g=>g.recommendations||[]):[];
@@ -125,7 +161,7 @@ export default function App() {
     <div className="source-selector"><span>Oglądasz z</span><button className={'source-pill '+(!folderSource&&selected.length===activeSources.length?'active':'')} onClick={()=>{setSelected(activeSources.map(s=>s.id));setPage(1);setFolder('');setFolderSource('');}}>Wszystkie źródła</button>{activeSources.map(s=><label className={'source-pill '+(selected.includes(s.id)?'active':'')} key={s.id}><input type="checkbox" checked={selected.includes(s.id)} onChange={()=>{setSelected(selected.includes(s.id)&&selected.length>1?selected.filter(id=>id!==s.id):[...new Set([...selected,s.id])]);setPage(1);setFolder('');setFolderSource('');}}/>{s.name}</label>)}<button className="icon-button" title="Dodaj źródło" onClick={()=>changeView('settings')}><Plus size={16}/></button></div>
     {view==='downloads'?<section className="downloads-page"><div className="page-title"><div><h1>Twoje pobrania</h1><p>Ręczny zapis. Prawdziwe tytuły. Twoje urządzenie lub Twoja chmura.</p></div><button className="button secondary" onClick={()=>{setStartDeviceQueue(!startDeviceQueue);launchedDevice.current.clear();}}>{startDeviceQueue?<Pause size={16}/>:<Play size={16}/>} {startDeviceQueue?'Zatrzymaj kolejkę':'Uruchom kolejkę na urządzeniu'}</button></div>{downloadJobs.length?<div className="download-list">{downloadJobs.map(j=><article className="download-row" key={j.id}><div className="source-icon">{j.destination==='device'?<Monitor/>:<Cloud/>}</div><div className="row-main"><h3>{j.filename}</h3><p>{j.destination==='device'?'To urządzenie':destinations.find(d=>d.id===j.destination)?.name} · {({queued:'W kolejce',downloading:'Pobieranie',ready:'Zapis zakończony',paused:'Wstrzymane',cancelled:'Anulowane',failed:'Błąd',retry:'Ponowna próba'})[j.status]||j.status}{j.bytes?' · '+size(j.bytes):''}</p>{j.error?<small className="error-text">{j.error}</small>:null}</div><div className="row-actions">{j.destination==='device'&&['queued','paused','failed'].includes(j.status)?<button className="button secondary" onClick={()=>beginDeviceDownload(j)}><Download size={16}/>Zapisz na urządzeniu</button>:null}{j.status==='ready'?<button className="button primary" onClick={()=>{if(j.destination==='device'){playingDownload.current=j;picker.current?.click();}else{void api<{id:string}>('/destinations/'+j.destination+'/as-source',{}).then(async result=>{await refresh();setSelected([result.id]);changeView('all');message('Otworzono magazyn zapisanych filmów.');}).catch(e=>message(e.message));}}}><Play size={16}/>Odtwórz {j.destination==='device'?'lokalny plik':''}</button>:null}{['failed','cancelled','paused'].includes(j.status)?<button className="icon-button" aria-label="Ponów pobieranie" onClick={()=>void api('/downloads/'+j.id+'/retry',{}).then(()=>load())}><RefreshCw size={17}/></button>:null}{['queued','downloading','retry'].includes(j.status)?<button className="icon-button" aria-label="Anuluj pobieranie" onClick={()=>void api('/downloads/'+j.id+'/cancel',{}).then(()=>load())}><X size={17}/></button>:null}</div></article>)}</div>:<Empty title="Twoja kolejka jest pusta" description="Przy sprawdzonym źródle wybierz „Zapisz film” lub „Zapisz odcinek”. Pobieranie jest opcjonalne."/>}<p className="form-note">Kolejka na urządzeniu działa, gdy panel jest otwarty. Przeglądarka może poprosić o zgodę na wiele pobrań. Gotowy plik odtworzysz przez „Otwórz plik”. Film nie trafia na dysk kontenera.</p></section>:<><div className="page-title"><div><h1>{appliedQuery?'Wyniki: '+appliedQuery:titles[view]}</h1><p>{view==='all'?'Filmy i seriale w jednym miejscu.':`${mainItems.length} pozycji na tej stronie · ${selected.length} ${selected.length===1?'źródło':'źródła'}`}</p></div>{sources.some(s=>s.type==='filman'&&selected.includes(s.id))?<div className="catalog-shortcuts"><button className="button ghost" onClick={()=>changeView('children')}>Dla dzieci</button><button className="button ghost" onClick={()=>changeView('hd')}>HD</button></div>:null}</div>
       <Filters schema={schema} draft={draft} setDraft={setDraft} sort={sort} setSort={value=>{setSort(value);setPage(1);}} onApply={()=>{setApplied({...draft});setPage(1);}} onReset={()=>{setDraft({});setApplied({});setSort('');setPage(1);}}/>
-      {errors.map((e,index)=><div className="source-error" key={index}><span><strong>{e.sourceName}</strong> · {e.message}</span><button className="button secondary" onClick={()=>changeView('settings')}>Ustawienia źródła</button></div>)}{groups.some(g=>g.challenge)?<div className="source-error">Portal wymaga ręcznego potwierdzenia. Otwórz logowanie / CAPTCHA w ustawieniach.</div>:null}{groups.map(g=>g.searchScope?<p className="form-note" key={g.sourceId}>{g.sourceName} · {g.searchScope}</p>:null)}
+      {errors.map((e,index)=><div className="source-error" key={index}><span><strong>{e.sourceName}</strong> · {e.message}</span><button className="button secondary" onClick={()=>void load()}>Ponów</button><button className="button secondary" onClick={()=>changeView('settings')}>Ustawienia źródła</button></div>)}{groups.some(g=>g.challenge)?<div className="source-error">Portal wymaga ręcznego potwierdzenia. Otwórz logowanie / CAPTCHA w ustawieniach.</div>:null}{groups.map(g=>g.searchScope?<p className="form-note" key={g.sourceId}>{g.sourceName} · {g.searchScope}</p>:null)}
       {busy?<Busy label="Pobieram prawdziwy katalog ze źródeł…"/>:null}
       {!busy&&feature?<section className="feature"><div className="feature-art"><Poster item={feature}/></div><div className="feature-content"><h2>{feature.title.split(' / ')[0]}</h2><div className="feature-meta"><Rating item={feature}/><span>{feature.year}{feature.kind==='series'?' · Serial':' · Film'} · {feature.sourceName}</span></div><p>{feature.description}</p><div className="feature-actions"><button className="button primary" onClick={()=>void openItem(feature)}><Play fill="currentColor" size={17}/>{feature.kind==='series'?'Zobacz odcinki':'Zobacz źródła'}</button></div></div></section>:null}
       {view==='all'&&showIntro&&history.length?<section className="continue-section"><div className="section-heading"><h2>Kontynuuj oglądanie</h2><button className="text-button" onClick={()=>changeView('continue')}>Wszystkie<ChevronRight size={14}/></button></div><div className="continue-grid">{history.slice(0,2).map(i=><ContinueCard key={i.id} item={i} onOpen={i=>void openItem(i,true)}/>)}</div></section>:null}

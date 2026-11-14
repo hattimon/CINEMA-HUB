@@ -1,18 +1,18 @@
 # Instalacja kontenerowa
 
-Serwer 1.3.17 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
+Serwer 1.3.18 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
 
 ## Instalacja przez DCC
 
 Cinema Hub jest już w kategorii **Media** sklepu aplikacji [Docker Control Center (DCC)](https://github.com/hattimon/DCC). Wybierz host Docker na Windows lub Linux, następnie **SKLEP → Media → Cinema Hub → Instaluj**. DCC uruchomi lokalny kontener z gotową konfiguracją. Na Windows używaj działającego Docker Desktop z kontenerami Linux; na Linux wymagany jest Docker. Możesz także wybrać zdalny host obsługiwany przez DCC, np. Raspberry Pi ARM64.
 
-DCC Container Updater porównuje wersję uruchomionego obrazu z katalogiem dla repozytorium `ghcr.io/hattimon/cinema-hub`. Jeśli masz obraz pod lokalną nazwą, przełącz instalację na wersjonowany obraz GHCR z zachowaniem obecnego wolumenu `/data`. W przypadku projektu Compose z Windows użyj akcji **Windows: przygotuj aktualizację z zachowaniem bazy** i wykonaj pobraną procedurę PowerShell na hoście Docker Desktop.
+DCC Container Updater porównuje wersję uruchomionego obrazu z katalogiem dla repozytorium `ghcr.io/hattimon/cinema-hub`. Jeśli masz obraz pod lokalną nazwą, przełącz instalację na wersjonowany obraz GHCR z zachowaniem obecnego wolumenu `/data`. Od wersji DCC Container Updater 1.1.9 akcja **Windows: przygotuj aktualizację z zachowaniem bazy** jest dostępna przy kontenerze Cinema Hub. Pobraną procedurę uruchom w PowerShell 7 na hoście Docker Desktop. Po teście kopii danych uruchom ponownie z `-Apply`, aby zaktualizować instalację.
 
 Opis i zrzuty aplikacji: **[hattimon.github.io/CINEMA-HUB](https://hattimon.github.io/CINEMA-HUB/)**.
 
 ## Windows
 
-1. Pobierz i rozpakuj [paczkę serwera 1.3.17](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.17) albo sklonuj repo.
+1. Pobierz i rozpakuj [paczkę serwera 1.3.18](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.18) albo sklonuj repo.
 2. Otwórz PowerShell w katalogu Cinema Hub.
 3. Uruchom `.\install-windows.ps1`. Jeżeli polityka PowerShell blokuje plik, możesz dla tego uruchomienia użyć `powershell -ExecutionPolicy Bypass -File .\install-windows.ps1`.
 4. Otwórz `http://localhost:8090/`. Na TV wpisz adres IP komputera i port 8090.

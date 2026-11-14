@@ -1,5 +1,9 @@
 # Historia wydań
 
+## Kontener 1.3.18 – automatyczny zapis sesji Filmana
+
+- Cinema Hub zapisuje potwierdzoną sesję Filmana bez ręcznego zamykania okna i ponawia chwilowy błąd dostępu. [Opis wydania](docs/RELEASE-1.3.18.md)
+
 ## Kontener 1.3.17 – okładki Filmana
 
 - Okładki są pobierane przez zapisaną sesję Chromium Filmana. Wydanie zawiera również poprawkę ręcznego logowania i zapisu profilu z 1.3.16. [Opis wydania](docs/RELEASE-1.3.17.md)

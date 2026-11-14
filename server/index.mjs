@@ -96,8 +96,12 @@ app.get('/api/sources/:id/inspect',auth,asyncRoute(async(req,res)=>{
 }));
 app.post('/api/sources/:id/device-index',auth,(req,res,next)=>{try{const source=getSource(req.params.id,req.user.id);if(source.type!=='device')throw fail('Wymagane źródło urządzenia.');const b=z.object({files:z.array(z.object({name:z.string().max(255),path:z.string().max(1024)})).max(1000)}).parse(req.body);res.json(b.files.map(f=>{safePath(f.path);return decorateItem(saveItem(source.id,{url:'device:'+f.path,title:f.name.replace(/\.[^.]+$/,''),kind:'movie',poster:'',description:'Plik na Twoim urządzeniu',rating:null,ratingScale:10,year:null,sourceName:source.name}),req.user.id);}));}catch(e){next(e);}});
 app.post('/api/sources/:id/login',auth,asyncRoute(async(req,res)=>{const source=getSource(req.params.id,req.user.id);if(!['filman','vider'].includes(source.type))throw fail('Ten typ źródła używa danych wpisanych w ustawieniach.');res.json(await sourceBrowser.openLogin(source,req.user.id));}));
-app.get('/api/browser/session',auth,(req,res)=>res.json({active:sourceBrowser.lease?.userId===req.user.id,expires:sourceBrowser.lease?.userId===req.user.id?sourceBrowser.lease.expires:null}));
-app.post('/api/browser/finish',auth,asyncRoute(async(req,res)=>res.json({ok:await sourceBrowser.finishLogin(req.user.id)})));
+app.get('/api/browser/session',auth,(req,res)=>res.json(sourceBrowser.loginStatus(req.user.id,req.query.session)));
+app.post('/api/browser/finish',auth,asyncRoute(async(req,res)=>{
+  const {sessionId}=z.object({sessionId:z.string().uuid().optional()}).parse(req.body??{});
+  const ok=await sourceBrowser.finishLogin(req.user.id,{sessionId});
+  res.json({ok:ok||sourceBrowser.loginStatus(req.user.id,sessionId).saved});
+}));
 app.get('/api/destinations',auth,(req,res)=>res.json(db.prepare('SELECT id,name,type,config FROM destinations WHERE user_id=?').all(req.user.id).map(d=>({...d,config:JSON.parse(d.config)}))));
 const destinationSchema=z.object({name:z.string().trim().min(1).max(80),type:z.enum(['ftp','webdav','s3']),config:z.object({url:z.string().max(2048),prefix:z.string().max(512).default(''),bucket:z.string().max(160).default(''),region:z.string().max(80).default('us-east-1')}),credentials:z.record(z.string().max(4096)).default({})});
 app.post('/api/destinations',auth,(req,res,next)=>{try{const b=destinationSchema.parse(req.body);safePath(b.config.prefix);if(b.type==='ftp'){const u=new URL(b.config.url);if(!['ftp:','ftps:'].includes(u.protocol)||u.username||u.password)throw fail('Nieprawidłowy adres FTP/FTPS.');}else networkURL(b.config.url);if(b.type==='s3'&&!b.config.bucket)throw fail('Podaj nazwę bucketu.');const id=uid();db.prepare('INSERT INTO destinations VALUES(?,?,?,?,?,?)').run(id,req.user.id,b.name,b.type,JSON.stringify(b.config),encrypt(b.credentials));res.status(201).json({id,name:b.name,type:b.type,config:b.config});}catch(e){next(e);}});

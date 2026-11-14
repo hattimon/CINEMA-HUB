@@ -1,5 +1,7 @@
 import { chromium } from 'playwright';
+import { randomUUID } from 'node:crypto';
 import { mkdir,readlink,unlink,lstat,rm } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { hostname } from 'node:os';
 import { resolve,dirname } from 'node:path';
 import { dataDir,playerRoute } from './store.mjs';
@@ -8,7 +10,8 @@ import { assertSourceAvailable,blockSource,parseRetryAfter } from './limits.mjs'
 import { isViderVideo,viderURL } from './vider-parser.mjs';
 import { viderPageReady } from './vider-page.mjs';
 import { browserHeaded } from './browser-mode.mjs';
-import { launchFilmanLogin } from './filman-login.mjs';
+import { launchFilmanBrowser } from './filman-login.mjs';
+import { filmanNeedsVerification, filmanPageState, navigateFilman } from './filman-session.mjs';
 import { filmanPosterURL, openFilmanPosterPage, readFilmanPoster } from './filman-posters.mjs';
 import { abortable } from './playback-work.mjs';
 
@@ -68,16 +71,21 @@ async function activateCoveredHosting(page,selector) {
 export class SourceBrowser {
   contexts=new Map(); locks=new Map(); lease=null; cache=new Map(); htmlPending=new Map(); retired=new Set();
   posterReaders=new WeakMap();
+  filmanBrowsers=new WeakMap();
+  savedLogins=new Map();
   async exclusive(id,work,signal) { if(process.env.BROWSER_SERIAL==='true')id='shared';const previous=this.locks.get(id)||Promise.resolve();let release;const lock=new Promise(r=>release=r);const tail=previous.catch(()=>{}).then(()=>lock);this.locks.set(id,tail);try{await abortable(previous.catch(()=>{}),signal);signal?.throwIfAborted();return await work();}finally{release();void tail.then(()=>{if(this.locks.get(id)===tail)this.locks.delete(id);});} }
   async context(source,headed=false) {
     if(this.retired.has(source.id))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});
     if(process.env.BROWSER_SERIAL==='true'&&this.lease&&this.lease.sourceId!==source.id)throw Object.assign(new Error('Trwa ręczne logowanie do źródła. Zakończ je przed sprawdzaniem innego konta.'),{status:409});
-    if(this.lease && (this.lease.sourceId!==source.id || !headed) && this.lease.sourceId===source.id) throw Object.assign(new Error('Zakończ ręczne logowanie do tego źródła.'),{status:409});
+    if(this.lease?.sourceId===source.id&&!headed)throw Object.assign(new Error('Trwa logowanie do tego źródła. Wróć do katalogu po zapisaniu sesji.'),{status:409});
     const existing=this.contexts.get(source.id);if(existing)return existing;
     const directory=await this.profileDirectory(source.id);
     const filmanDisplay=source.type==='filman'&&!headed ? process.env.FILMAN_BROWSER_DISPLAY : undefined;
     const visible=!!filmanDisplay||browserHeaded(source.type,headed);
-    const context=await chromium.launchPersistentContext(directory,{
+    const native=filmanDisplay&&process.platform==='linux'&&process.env.CHROMIUM_PATH
+      ? await launchFilmanBrowser(process.env.CHROMIUM_PATH,directory,'about:blank',{display:filmanDisplay,background:true})
+      : null;
+    const context=native ? (await this.connectFilman(native)).contexts()[0] : await chromium.launchPersistentContext(directory,{
       timeout:30000,
       headless:!visible,
       executablePath:process.env.CHROMIUM_PATH||undefined,
@@ -89,9 +97,29 @@ export class SourceBrowser {
       ...(filmanDisplay ? {env:{...process.env,DISPLAY:filmanDisplay}} : {}),
       ...(source.type!=='filman' ? {userAgent:'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'} : {}),
     });
-    await context.route('**/*',async route=>{const address=route.request().url();if(isAdvertisement(address))return route.abort();return route.continue();});
+    if(!context){await native.close().catch(()=>{});throw new Error('Nie znaleziono profilu Chromium Filmana.');}
+    if(native)this.filmanBrowsers.set(context,native);
+    try {
+      await context.route('**/*',async route=>{const address=route.request().url();if(isAdvertisement(address))return route.abort();return route.continue();});
+    } catch(error) {
+      await this.closeContext(context).catch(()=>{});
+      throw error;
+    }
     context.on('page',page=>{if(!headed)page.on('popup',popup=>{if(isAdvertisement(popup.url()))popup.close().catch(()=>{});});});
-    this.contexts.set(source.id,context);return context;
+    this.contexts.set(source.id,context);
+    if(native)void native.exited.then(()=>{if(this.contexts.get(source.id)===context)this.contexts.delete(source.id);});
+    return context;
+  }
+
+  async connectFilman(native) {
+    try {return await chromium.connectOverCDP(await native.endpoint(),{timeout:7000});}
+    catch(error){await native.close().catch(()=>{});throw error;}
+  }
+
+  async closeContext(context) {
+    const native=this.filmanBrowsers.get(context);
+    if(native)await native.close();
+    else await context.close();
   }
   async profileDirectory(sourceId) {
     if(this.retired.has(sourceId))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});
@@ -103,7 +131,7 @@ export class SourceBrowser {
   async closeContextAfterWork(source, context) {
     if (process.env.BROWSER_CLOSE_AFTER_WORK !== 'true' || this.lease?.sourceId === source.id || this.contexts.get(source.id) !== context) return;
     this.contexts.delete(source.id);
-    await context.close().catch(() => {});
+    await this.closeContext(context).catch(() => {});
   }
   async poster(source, address) {
     const url = filmanPosterURL(source, address);
@@ -126,6 +154,7 @@ export class SourceBrowser {
     };
     const reader = await this.exclusive(source.id, async () => {
       assertSourceAvailable(source.id);
+      if (this.lease?.sourceId === source.id && this.lease.finishing) await this.lease.finishing;
       const context = await this.context(source);
       if (process.env.BROWSER_CLOSE_AFTER_WORK !== 'true') return acquire(context);
       try {
@@ -142,16 +171,21 @@ export class SourceBrowser {
     assertSourceAvailable(source.id);
     if(source.type==='vider') {if(!viderURL(url,source.url))throw new Error('Adres wykracza poza wybrane źródło Vider.');}
     else sameSourceURL(url,source.url);
+    // Give an already recognized manual session time to flush before opening
+    // the same profile again. An unconfirmed session still owns its window.
+    if(this.lease?.sourceId===source.id&&this.lease.finishing)await this.lease.finishing;
     const context=await this.context(source),page=await context.newPage();
     const abort=()=>{void page.close().catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
     try {
       signal?.throwIfAborted();
-      const response=await page.goto(url,{referer:source.url,waitUntil:'domcontentloaded',timeout:30000});
+      const response=source.type==='filman'
+        ? await navigateFilman(page,url,source,signal)
+        : await page.goto(url,{referer:source.url,waitUntil:'domcontentloaded',timeout:30000});
       if(source.type==='vider'&&!viderURL(page.url(),source.url))throw new Error('Vider przekierował poza skonfigurowany portal.');
       if(response?.status()>=400||new URL(page.url()).pathname!==new URL(url).pathname){const redirects=[];for(let request=response?.request();request;request=request.redirectedFrom())redirects.push({host:new URL(request.url()).hostname,path:new URL(request.url()).pathname});console.warn('portal_navigation',JSON.stringify({status:response?.status(),expectedPath:new URL(url).pathname,redirects}));}
       if(response?.status()===429){const retryAfter=blockSource(source.id,parseRetryAfter(response.headers()['retry-after']));throw Object.assign(new Error('Portal ograniczył liczbę zapytań.'+(retryAfter?'':' Nie podał terminu odblokowania.')),{status:429,retryAfter});}
       await page.locator('body').waitFor();
-      if([401,403].includes(response?.status())||/Just a moment|Verify you are human|Attention Required/i.test(await page.title()))throw Object.assign(new Error('Portal wymaga potwierdzenia dostępu. Otwórz logowanie / CAPTCHA w ustawieniach źródła.'),{status:409,requiresAction:true});
+      if(source.type!=='filman'&&([401,403].includes(response?.status())||/Just a moment|Verify you are human|Attention Required/i.test(await page.title())))throw Object.assign(new Error('Portal wymaga potwierdzenia dostępu. Otwórz logowanie / CAPTCHA w ustawieniach źródła.'),{status:409,requiresAction:true});
       // Wait for actual AJAX content, not the account menu's collection link.
       if(source.type==='vider')try{await page.waitForFunction(viderPageReady,null,{timeout:25000});}catch{throw Object.assign(new Error('Vider nie załadował listy filmów. Otwórz logowanie / CAPTCHA i sprawdź stronę źródła.'),{status:409});}
       if(/(?:zbyt (?:wiele|dużo).{0,35}(?:zapyt|źród)|too many requests|czasow.{0,25}blokad)/i.test((await page.locator('body').innerText()).slice(0,16000))){throw Object.assign(new Error('Portal zgłosił ograniczenie dostępu bez podania terminu odblokowania.'),{status:429});}
@@ -166,8 +200,9 @@ export class SourceBrowser {
     if(this.htmlPending.has(key))return this.htmlPending.get(key);
     const pending=this.page(source,url,async page=>{
       if(source.type!=='vider')await page.waitForFunction(()=>!!document.querySelector('#item-list,#single-info,.item-list,#links,[id^="filter-"],input[type="password"],video') || /Just a moment|Verify you are human/.test(document.title),null,{timeout:5000}).catch(()=>{});
+      if(source.type==='filman'&&await page.evaluate(filmanPageState,new URL(source.url).origin)==='challenge')throw filmanNeedsVerification();
       const value=await page.content();
-      const challenge=await page.evaluate(()=>/Just a moment|Verify you are human|captcha/i.test(document.title)||[...document.querySelectorAll('.g-recaptcha,iframe[src*="captcha"],#cf-challenge-running')].some(e=>e.getBoundingClientRect().width>0));
+      const challenge=source.type==='filman' ? false : await page.evaluate(()=>/Just a moment|Verify you are human|captcha/i.test(document.title)||[...document.querySelectorAll('.g-recaptcha,iframe[src*="captcha"],#cf-challenge-running')].some(e=>e.getBoundingClientRect().width>0));
       if(!challenge&&!this.retired.has(source.id)){if(this.cache.size>150)this.cache.delete(this.cache.keys().next().value);this.cache.set(key,{value,expires:Date.now()+5*60000});}
       return value;
     }).finally(()=>{if(this.htmlPending.get(key)===pending)this.htmlPending.delete(key);});
@@ -176,21 +211,21 @@ export class SourceBrowser {
   async openLogin(source,userId) {
     const open=()=>this.exclusive(source.id,async()=>{
       if(this.lease && this.lease.userId!==userId)throw Object.assign(new Error('Inny użytkownik kończy logowanie. Spróbuj później.'),{status:409});
-      if(this.lease?.sourceId===source.id&&!this.lease.finishing)return {url:'/connect',expires:this.lease.expires};
+      if(this.lease?.sourceId===source.id&&!this.lease.finishing)return this.loginWindow(this.lease);
       if(this.lease)await this.finishLogin(userId);
 
       // In serial mode catalog windows can use the shared display. Close them before granting noVNC access.
       for(const [id,context] of this.contexts){
         if(id!==source.id&&process.env.BROWSER_SERIAL!=='true')continue;
-        await context.close();
+        await this.closeContext(context);
         this.contexts.delete(id);
       }
 
-      const lease={userId,sourceId:source.id,expires:Date.now()+15*60*1000};
+      const lease={id:randomUUID(),userId,sourceId:source.id,expires:Date.now()+15*60*1000};
       if(source.type==='filman'&&process.platform==='linux'&&process.env.CHROMIUM_PATH&&process.env.DISPLAY){
         const directory=await this.profileDirectory(source.id);
         const loginURL=new URL('/logowanie',source.url).href;
-        lease.browser=await launchFilmanLogin(process.env.CHROMIUM_PATH,directory,loginURL);
+        lease.browser=await launchFilmanBrowser(process.env.CHROMIUM_PATH,directory,loginURL);
         this.lease=lease;
         void lease.browser.exited.then(()=>{
           if(this.lease===lease&&!lease.finishing){
@@ -198,16 +233,44 @@ export class SourceBrowser {
             this.endLogin(lease);
           }
         });
-        return {url:'/connect',expires:lease.expires};
+        void this.watchFilmanLogin(source,lease);
+        return this.loginWindow(lease);
       }
 
       const context=await this.context(source,true);
       const page=context.pages()[0]||await context.newPage();
       this.lease=lease;
       try {await page.goto(source.url,{waitUntil:'domcontentloaded',timeout:35000});const login=page.locator('a[href]').filter({hasText:/Zaloguj|Logowanie|Log in|Sign in/i}).first();if(await login.count()){const href=await login.getAttribute('href');if(href){const url=new URL(href,page.url());if(url.origin===new URL(source.url).origin||source.type==='vider'&&viderURL(url.href,source.url))await page.goto(url.href,{waitUntil:'domcontentloaded'});}}} catch { /* The user can navigate or complete a challenge in the visible browser. */ }
-      return {url:'/connect',expires:lease.expires};
+      return this.loginWindow(lease);
     });
     return process.env.BROWSER_SERIAL==='true' ? open() : this.exclusive('manual-login',open);
+  }
+  loginWindow(lease) {
+    return {url:'/connect?session='+lease.id,expires:lease.expires};
+  }
+  loginStatus(userId, sessionId) {
+    const lease=this.lease;
+    const active=lease?.userId===userId&&(!sessionId||lease.id===sessionId)&&lease.expires>Date.now();
+    const saved=this.savedLogins.get(sessionId)===userId;
+    return {active,expires:active?lease.expires:null,saved};
+  }
+  async watchFilmanLogin(source,lease) {
+    try {
+      const browser=await chromium.connectOverCDP(await lease.browser.endpoint(),{timeout:7000});
+      const context=browser.contexts()[0];
+      const origin=new URL(source.url).origin;
+      while(this.lease===lease&&!lease.finishing&&Date.now()<lease.expires) {
+        for(const page of context.pages()) {
+          const state=await page.evaluate(filmanPageState,origin).catch(()=>null);
+          if(state!=='signed-in'||this.lease!==lease||lease.finishing)continue;
+          await this.finishLogin(lease.userId,{sessionId:lease.id,automatic:true});
+          return;
+        }
+        await delay(1500,undefined,{ref:false});
+      }
+    } catch(error) {
+      if(this.lease===lease||error.status===503)console.warn('filman_login_watch',error.name);
+    }
   }
   clearSourceCache(id) {
     for(const key of this.cache.keys())if(key.startsWith(id+':'))this.cache.delete(key);
@@ -217,15 +280,19 @@ export class SourceBrowser {
     this.lease=null;
     this.onLoginEnd?.();
   }
-  async finishLogin(userId) {
+  async finishLogin(userId,{sessionId,automatic=false}={}) {
     const lease=this.lease;
-    if(!lease||lease.userId!==userId)return false;
+    if(!lease||lease.userId!==userId||sessionId&&lease.id!==sessionId)return false;
     if(lease.finishing)return lease.finishing;
     const {sourceId}=lease;
     lease.finishing=(async()=>{
       try {
         if(lease.browser)await lease.browser.close();
         else await this.contexts.get(sourceId)?.close();
+        if(automatic) {
+          this.savedLogins.set(lease.id,userId);
+          setTimeout(()=>this.savedLogins.delete(lease.id),120000).unref();
+        }
         return true;
       } finally {
         this.contexts.delete(sourceId);
@@ -247,7 +314,7 @@ export class SourceBrowser {
     try{return await this.exclusive(id,async()=>{
       if(this.lease?.sourceId===id)await this.finishLogin(this.lease.userId);
       const context=this.contexts.get(id);this.contexts.delete(id);
-      if(context)await context.close();
+      if(context)await this.closeContext(context);
       this.clearSourceCache(id);
       await rm(directory,{recursive:true,force:true});
       return removeConfiguration();
@@ -467,7 +534,7 @@ export class SourceBrowser {
   }
   async close() {
     if(this.lease)await this.finishLogin(this.lease.userId).catch(()=>{});
-    for(const context of this.contexts.values())await context.close().catch(()=>{});
+    for(const context of this.contexts.values())await this.closeContext(context).catch(()=>{});
     this.contexts.clear();
   }
 }
