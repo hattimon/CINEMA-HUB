@@ -4,10 +4,12 @@ COPY package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
+COPY public ./public
 COPY server/audio-level.* ./server/
 RUN npm run build
 
 FROM node:22-bookworm-slim
+LABEL org.opencontainers.image.source="https://github.com/hattimon/CINEMA-HUB"
 RUN apt-get update && apt-get install -y --no-install-recommends chromium xvfb x11vnc novnc websockify ffmpeg rclone tini ca-certificates fonts-liberation && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=8090 DISPLAY=:99 CHROMIUM_PATH=/usr/bin/chromium DATA_DIR=/data
 WORKDIR /app

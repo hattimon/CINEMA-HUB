@@ -1,5 +1,11 @@
 # Historia wydań
 
+## Kontener 1.3.19 – playlisty i logowanie do Filmana
+
+- Prywatne playlisty filmów i odcinków z zapisem postępu, importem JSON i CSV oraz dwiema chronologiami Stargate.
+- Cinema Hub może wznowić ostatnie konto Filmana i spróbować prostej weryfikacji. Zmianę konta uruchamia użytkownik.
+- Wersjonowany obraz DCC dla Windows z Docker Desktop oraz Linuksa na amd64 i ARM64. [Opis i aktualizacja](docs/RELEASE-1.3.19.md)
+
 ## Kontener 1.3.18 – automatyczny zapis sesji Filmana
 
 - Cinema Hub zapisuje potwierdzoną sesję Filmana bez ręcznego zamykania okna i ponawia chwilowy błąd dostępu. [Opis wydania](docs/RELEASE-1.3.18.md)

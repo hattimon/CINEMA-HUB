@@ -4,6 +4,7 @@ import http from 'node:http';
 import httpProxy from 'http-proxy';
 import { randomBytes } from 'node:crypto';
 import { installAccountRoutes } from './account-routes.mjs';
+import { installPlaylistRoutes } from './playlist-routes.mjs';
 import { resolve } from 'node:path';
 import { existsSync,readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -21,7 +22,9 @@ import { assertSourceAvailable } from './limits.mjs';
 import { isViderOrigin } from './vider-parser.mjs';
 
 const appVersion=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
-export const app=express();app.disable('x-powered-by');app.use(cookieParser());app.use(express.json({limit:'128kb'}));
+export const app=express();app.disable('x-powered-by');app.use(cookieParser());
+app.use('/api/playlists/import',express.json({limit:'2mb'}));
+app.use(express.json({limit:'128kb'}));
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff').set('Referrer-Policy','same-origin').set('X-Frame-Options','SAMEORIGIN');if(req.path.startsWith('/api'))res.set('Cache-Control','no-store');next();});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const asyncRoute=handler=>(req,res,next)=>Promise.resolve(handler(req,res)).catch(next);
@@ -31,6 +34,7 @@ function sessionUser(req) {const token=req.cookies.cinema_session;if(!token)retu
 function auth(req,res,next) {const user=sessionUser(req);if(!user)return res.status(401).json({error:'Zaloguj się do Cinema Hub.'});req.user=user;next();}
 const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.COOKIE_SECURE==='true',path:'/'};
 installAccountRoutes(app,auth,cookieOptions);
+installPlaylistRoutes(app,auth);
 const loginSchema=z.object({username:z.string().min(1).max(40),password:z.string().min(1).max(256),remember:z.boolean().default(false)});
 const loginLimits=new Map();
 app.get('/api/health',(_req,res)=>res.json({status:'ok',service:'cinema-hub',version:appVersion,localRevision:'resume-progress-20261023'}));
@@ -96,6 +100,12 @@ app.get('/api/sources/:id/inspect',auth,asyncRoute(async(req,res)=>{
 }));
 app.post('/api/sources/:id/device-index',auth,(req,res,next)=>{try{const source=getSource(req.params.id,req.user.id);if(source.type!=='device')throw fail('Wymagane źródło urządzenia.');const b=z.object({files:z.array(z.object({name:z.string().max(255),path:z.string().max(1024)})).max(1000)}).parse(req.body);res.json(b.files.map(f=>{safePath(f.path);return decorateItem(saveItem(source.id,{url:'device:'+f.path,title:f.name.replace(/\.[^.]+$/,''),kind:'movie',poster:'',description:'Plik na Twoim urządzeniu',rating:null,ratingScale:10,year:null,sourceName:source.name}),req.user.id);}));}catch(e){next(e);}});
 app.post('/api/sources/:id/login',auth,asyncRoute(async(req,res)=>{const source=getSource(req.params.id,req.user.id);if(!['filman','vider'].includes(source.type))throw fail('Ten typ źródła używa danych wpisanych w ustawieniach.');res.json(await sourceBrowser.openLogin(source,req.user.id));}));
+app.post('/api/sources/:id/switch-account',auth,asyncRoute(async(req,res)=>{
+  const source=getSource(req.params.id,req.user.id);
+  if(source.type!=='filman')throw fail('Zmiana konta jest dostępna dla Filman.cc.');
+  const {sessionId}=z.object({sessionId:z.string().uuid().optional()}).parse(req.body??{});
+  res.json(await sourceBrowser.openLogin(source,req.user.id,{switchAccount:true,sessionId}));
+}));
 app.get('/api/browser/session',auth,(req,res)=>res.json(sourceBrowser.loginStatus(req.user.id,req.query.session)));
 app.post('/api/browser/finish',auth,asyncRoute(async(req,res)=>{
   const {sessionId}=z.object({sessionId:z.string().uuid().optional()}).parse(req.body??{});

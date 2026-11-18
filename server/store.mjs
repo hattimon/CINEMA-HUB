@@ -49,6 +49,29 @@ export const defaults={theme:'violet',style:'cinematic',posterScale:100,combineS
 export function getSettings(userId) { const row=db.prepare('SELECT value FROM settings WHERE user_id=?').get(userId); return {...defaults,...(row?JSON.parse(row.value):{})}; }
 export function saveSettings(userId,value) { db.prepare('INSERT INTO settings VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET value=excluded.value').run(userId,JSON.stringify(value)); }
 export function getSource(id,userId) { const row=db.prepare('SELECT * FROM sources WHERE id=? AND user_id=?').get(id,userId); if(!row) throw Object.assign(new Error('Nie znaleziono źródła.'),{status:404}); return {...row,options:JSON.parse(row.options||'{}'),credentials:decrypt(row.secret)}; }
+export function getFilmanLogin(source) {
+  if (!hasFilmanLoginsTable()) return undefined;
+  const saved=db.prepare('SELECT secret FROM filman_logins WHERE source_id=? AND origin=?').get(source.id,new URL(source.url).origin);
+  return saved ? decrypt(saved.secret) : undefined;
+}
+function hasFilmanLoginsTable() {
+  return !!db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='filman_logins'").get();
+}
+export function saveFilmanLogin(source,credentials) {
+  // Existing sessions can run without a schema change until a login is confirmed.
+  db.exec(`CREATE TABLE IF NOT EXISTS filman_logins(
+    source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+    origin TEXT NOT NULL, secret TEXT NOT NULL
+  )`);
+  db.prepare(`INSERT INTO filman_logins (source_id, origin, secret)
+    SELECT id, ?, ? FROM sources WHERE id=? AND type='filman' AND url=?
+    ON CONFLICT(source_id) DO UPDATE SET origin=excluded.origin, secret=excluded.secret`)
+    .run(new URL(source.url).origin,encrypt(credentials),source.id,source.url);
+}
+export function clearFilmanLogin(sourceId) {
+  if (hasFilmanLoginsTable()) db.prepare('DELETE FROM filman_logins WHERE source_id=?').run(sourceId);
+  db.prepare('DELETE FROM player_routes WHERE source_id=?').run(sourceId);
+}
 export function deleteSource(id,userId) {
   getSource(id,userId);
   db.exec('BEGIN IMMEDIATE');

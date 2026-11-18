@@ -4,14 +4,14 @@ import { mkdir,readlink,unlink,lstat,rm } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { hostname } from 'node:os';
 import { resolve,dirname } from 'node:path';
-import { dataDir,playerRoute } from './store.mjs';
+import { dataDir,playerRoute,getFilmanLogin,saveFilmanLogin,clearFilmanLogin } from './store.mjs';
 import { sameSourceURL, isAdvertisement, networkURL, verifyMedia } from './net.mjs';
 import { assertSourceAvailable,blockSource,parseRetryAfter } from './limits.mjs';
 import { isViderVideo,viderURL } from './vider-parser.mjs';
 import { viderPageReady } from './vider-page.mjs';
 import { browserHeaded } from './browser-mode.mjs';
 import { launchFilmanBrowser } from './filman-login.mjs';
-import { filmanNeedsVerification, filmanPageState, navigateFilman } from './filman-session.mjs';
+import { clickFilmanCheckbox, filmanNeedsVerification, filmanPageState, navigateFilman, watchFilmanCredentials } from './filman-session.mjs';
 import { filmanPosterURL, openFilmanPosterPage, readFilmanPoster } from './filman-posters.mjs';
 import { abortable } from './playback-work.mjs';
 
@@ -73,6 +73,7 @@ export class SourceBrowser {
   posterReaders=new WeakMap();
   filmanBrowsers=new WeakMap();
   savedLogins=new Map();
+  filmanRecoveryFailedUntil=new Map();
   async exclusive(id,work,signal) { if(process.env.BROWSER_SERIAL==='true')id='shared';const previous=this.locks.get(id)||Promise.resolve();let release;const lock=new Promise(r=>release=r);const tail=previous.catch(()=>{}).then(()=>lock);this.locks.set(id,tail);try{await abortable(previous.catch(()=>{}),signal);signal?.throwIfAborted();return await work();}finally{release();void tail.then(()=>{if(this.locks.get(id)===tail)this.locks.delete(id);});} }
   async context(source,headed=false) {
     if(this.retired.has(source.id))throw Object.assign(new Error('Konfiguracja źródła została usunięta.'),{status:404});
@@ -133,6 +134,22 @@ export class SourceBrowser {
     this.contexts.delete(source.id);
     await this.closeContext(context).catch(() => {});
   }
+  async navigateFilman(page,url,source,signal) {
+    const recovery = {
+      disabled: (this.filmanRecoveryFailedUntil.get(source.id) ?? 0) > Date.now(),
+      loadCredentials: () => getFilmanLogin(source),
+    };
+    try {
+      const response = await navigateFilman(page,url,source,signal,recovery);
+      if (recovery.attempted) this.filmanRecoveryFailedUntil.delete(source.id);
+      return response;
+    } catch (error) {
+      if (error.requiresAction && recovery.attempted) {
+        this.filmanRecoveryFailedUntil.set(source.id,Date.now()+120000);
+      }
+      throw error;
+    }
+  }
   async poster(source, address) {
     const url = filmanPosterURL(source, address);
     if (!url) return null;
@@ -179,7 +196,7 @@ export class SourceBrowser {
     try {
       signal?.throwIfAborted();
       const response=source.type==='filman'
-        ? await navigateFilman(page,url,source,signal)
+        ? await this.navigateFilman(page,url,source,signal)
         : await page.goto(url,{referer:source.url,waitUntil:'domcontentloaded',timeout:30000});
       if(source.type==='vider'&&!viderURL(page.url(),source.url))throw new Error('Vider przekierował poza skonfigurowany portal.');
       if(response?.status()>=400||new URL(page.url()).pathname!==new URL(url).pathname){const redirects=[];for(let request=response?.request();request;request=request.redirectedFrom())redirects.push({host:new URL(request.url()).hostname,path:new URL(request.url()).pathname});console.warn('portal_navigation',JSON.stringify({status:response?.status(),expectedPath:new URL(url).pathname,redirects}));}
@@ -208,9 +225,16 @@ export class SourceBrowser {
     }).finally(()=>{if(this.htmlPending.get(key)===pending)this.htmlPending.delete(key);});
     this.htmlPending.set(key,pending);return pending;
   }
-  async openLogin(source,userId) {
+  async openLogin(source,userId,{switchAccount=false,sessionId}={}) {
     const open=()=>this.exclusive(source.id,async()=>{
       if(this.lease && this.lease.userId!==userId)throw Object.assign(new Error('Inny użytkownik kończy logowanie. Spróbuj później.'),{status:409});
+      if(sessionId && (this.lease?.id!==sessionId || this.lease.sourceId!==source.id || this.lease.finishing)){
+        throw Object.assign(new Error('Ta sesja jest zamknięta. Otwórz logowanie w ustawieniach.'),{status:409});
+      }
+      if(switchAccount){
+        if(this.lease)await this.finishLogin(userId);
+        await this.resetFilmanSession(source);
+      }
       if(this.lease?.sourceId===source.id&&!this.lease.finishing)return this.loginWindow(this.lease);
       if(this.lease)await this.finishLogin(userId);
 
@@ -221,7 +245,7 @@ export class SourceBrowser {
         this.contexts.delete(id);
       }
 
-      const lease={id:randomUUID(),userId,sourceId:source.id,expires:Date.now()+15*60*1000};
+      const lease={id:randomUUID(),userId,sourceId:source.id,sourceType:source.type,expires:Date.now()+15*60*1000};
       if(source.type==='filman'&&process.platform==='linux'&&process.env.CHROMIUM_PATH&&process.env.DISPLAY){
         const directory=await this.profileDirectory(source.id);
         const loginURL=new URL('/logowanie',source.url).href;
@@ -241,6 +265,7 @@ export class SourceBrowser {
       const page=context.pages()[0]||await context.newPage();
       this.lease=lease;
       try {await page.goto(source.url,{waitUntil:'domcontentloaded',timeout:35000});const login=page.locator('a[href]').filter({hasText:/Zaloguj|Logowanie|Log in|Sign in/i}).first();if(await login.count()){const href=await login.getAttribute('href');if(href){const url=new URL(href,page.url());if(url.origin===new URL(source.url).origin||source.type==='vider'&&viderURL(url.href,source.url))await page.goto(url.href,{waitUntil:'domcontentloaded'});}}} catch { /* The user can navigate or complete a challenge in the visible browser. */ }
+      if(source.type==='filman')void this.watchFilmanLogin(source,lease,context);
       return this.loginWindow(lease);
     });
     return process.env.BROWSER_SERIAL==='true' ? open() : this.exclusive('manual-login',open);
@@ -252,24 +277,44 @@ export class SourceBrowser {
     const lease=this.lease;
     const active=lease?.userId===userId&&(!sessionId||lease.id===sessionId)&&lease.expires>Date.now();
     const saved=this.savedLogins.get(sessionId)===userId;
-    return {active,expires:active?lease.expires:null,saved};
+    return {active,expires:active?lease.expires:null,saved,switchableSourceId:active&&lease.sourceType==='filman'?lease.sourceId:undefined};
   }
-  async watchFilmanLogin(source,lease) {
+  async watchFilmanLogin(source,lease,context) {
+    let unwatch;
     try {
-      const browser=await chromium.connectOverCDP(await lease.browser.endpoint(),{timeout:7000});
-      const context=browser.contexts()[0];
+      if(!context){
+        const browser=await chromium.connectOverCDP(await lease.browser.endpoint(),{timeout:7000});
+        context=browser.contexts()[0];
+      }
       const origin=new URL(source.url).origin;
+      const submitted=new WeakMap();
+      unwatch=watchFilmanCredentials(context,origin,(page,credentials)=>submitted.set(page,credentials));
+      let checkboxTried=(this.filmanRecoveryFailedUntil.get(source.id)??0)>Date.now();
       while(this.lease===lease&&!lease.finishing&&Date.now()<lease.expires) {
         for(const page of context.pages()) {
           const state=await page.evaluate(filmanPageState,origin).catch(()=>null);
-          if(state!=='signed-in'||this.lease!==lease||lease.finishing)continue;
-          await this.finishLogin(lease.userId,{sessionId:lease.id,automatic:true});
-          return;
+          if(this.lease!==lease||lease.finishing)return;
+          if(state==='signed-in'){
+            const credentials=submitted.get(page);
+            if(credentials){
+              try { saveFilmanLogin(source,credentials); }
+              catch { console.warn('filman_login_credentials_save_failed'); }
+            }
+            this.filmanRecoveryFailedUntil.delete(source.id);
+            await this.finishLogin(lease.userId,{sessionId:lease.id,automatic:true});
+            return;
+          }
+          if(!checkboxTried&&(state==='challenge'||state==='login')){
+            const result=await clickFilmanCheckbox(page,origin).catch(()=>'absent');
+            checkboxTried=result!=='absent';
+          }
         }
         await delay(1500,undefined,{ref:false});
       }
     } catch(error) {
       if(this.lease===lease||error.status===503)console.warn('filman_login_watch',error.name);
+    } finally {
+      unwatch?.();
     }
   }
   clearSourceCache(id) {
@@ -319,6 +364,25 @@ export class SourceBrowser {
       await rm(directory,{recursive:true,force:true});
       return removeConfiguration();
     });}catch(error){this.retired.delete(id);throw error;}
+  }
+  async resetFilmanSession(source) {
+    if(source.type!=='filman'||!/^[a-f0-9]{32}$/.test(source.id))throw Object.assign(new Error('Niepoprawne źródło Filman.'),{status:400});
+    const root=resolve(dataDir,'browser'),directory=resolve(root,source.id);
+    if(dirname(directory)!==root)throw new Error('Nieprawidłowa ścieżka profilu.');
+    for(const path of [root,directory]){
+      const entry=await lstat(path).catch(error=>{if(error.code!=='ENOENT')throw error;});
+      if(entry?.isSymbolicLink()||entry&&!entry.isDirectory())throw new Error('Niebezpieczna ścieżka profilu.');
+    }
+    this.retired.add(source.id);
+    try{
+      const context=this.contexts.get(source.id);
+      if(context)await this.closeContext(context);
+      this.contexts.delete(source.id);
+      this.clearSourceCache(source.id);
+      await rm(directory,{recursive:true,force:true});
+      clearFilmanLogin(source.id);
+      this.filmanRecoveryFailedUntil.delete(source.id);
+    }finally{this.retired.delete(source.id);}
   }
   async resolveVider(source,pageURL,link,onProgress=()=>{},{signal}={}) {
     const video=viderURL(pageURL,source.url);
