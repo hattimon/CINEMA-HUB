@@ -474,7 +474,7 @@ export class SourceBrowser {
     return this.page(source,pageURL,async(page,context)=>{
       const candidates=[];let selected=false,playerClick=false,portalRequest=false,blocked=false,blockedUntil,hostingLimit;const pages=new Set([page]),requests=[],responses=[],playerTargets=new Set(),followedTargets=new Set();
       const sourceOrigin=new URL(source.url).origin;
-      let selectedId=link.id;
+      const selectedId=link.id;
       const providerFrames=new WeakSet();
       const isProviderAddress=address=>{
         try{
@@ -571,7 +571,19 @@ export class SourceBrowser {
           const clean=value=>String(value||'').replace(/\s+/g,' ').trim();
           return anchors.filter(a=>{const row=a.closest('tr'),cells=row?.querySelectorAll('td');return clean(a.querySelector('img')?.alt||a.textContent.split(' dodane ')[0])===link.host&&clean(cells?.[1]?.textContent)===link.version&&clean(cells?.[2]?.textContent)===link.quality&&!row?.classList.contains('visible-0')&&!row?.classList.contains('disabled');}).map(a=>a.getAttribute('data-link-id'));
         },link);
-        if(matches.length===1)selectedId=matches[0];else if(!matches.includes(selectedId)){await hostingDiagnostic(page,'#links',pages);throw new Error('Lista hostingów uległa zmianie. Odśwież szczegóły tytułu i wybierz jeden link.');}
+        if(!matches.includes(selectedId)){
+          if(!matches.length){
+            await hostingDiagnostic(page,'#links',pages);
+            throw new Error('Wybrany link nie jest już widoczny. Odśwież szczegóły tytułu i wybierz dostępne nagranie.');
+          }
+          // The caller validates the upload against this item's catalog links.
+          // Keep that exact ID when a reload shows another upload on the host.
+          await page.locator('#links a[data-link-id="'+matches[0]+'"]').evaluate((anchor,id)=>{
+            anchor.setAttribute('data-id',id);
+            anchor.setAttribute('data-link-id',id);
+            if(typeof window.jQuery==='function')window.jQuery(anchor).data('id',id).data('link-id',id);
+          },selectedId);
+        }
         const selector=`#links a[data-link-id="${selectedId}"]`,button=page.locator(selector).filter({visible:true}).first();
         await clearClickAdvertisements(page,'#links',new URL(source.url).origin);
         onProgress('Otwieram wybrany hosting…');
@@ -653,7 +665,15 @@ export class SourceBrowser {
         const unique=[...new Map(candidates.reverse().map(c=>[c.url,c])).values()].sort((a,b)=>Number(!!b.provider)-Number(!!a.provider)||Number(b.kind==='hls')-Number(a.kind==='hls')).slice(0,3);
         for(const found of unique) { if(controller.signal.aborted)break;try {
           networkURL(found.url);const cookies=await context.cookies(found.url);const headers={'User-Agent':await page.evaluate(()=>navigator.userAgent),Referer:found.referer};if(cookies.length)headers.Cookie=cookies.map(c=>`${c.name}=${c.value}`).join('; ');if(found.headers.origin)headers.Origin=found.headers.origin;
-          const candidate={url:found.url,kind:found.kind,headers,allowedOrigins:[new URL(source.url).origin]};await verifyMedia(candidate,{signal:controller.signal});const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(candidate,{signal:controller.signal});if(Number(meta.duration)>0&&Number(meta.duration)<60)throw new Error('Materiał krótszy niż minuta — pomijam wstawkę.');const playerAddress=playerTargets.values().next().value;if(playerAddress)playerRoute(source.id,pageURL,currentLink(),playerAddress);return {...candidate,host:link.host,quality:meta.height+'p',version:link.version,audioCodec:meta.audioCodec,duration:Number(meta.duration)||undefined};
+          const candidate={url:found.url,kind:found.kind,headers,allowedOrigins:[new URL(source.url).origin]};
+          await verifyMedia(candidate,{signal:controller.signal});
+          const {probeMedia}=await import('./media.mjs');
+          const meta=await probeMedia(candidate,{signal:controller.signal});
+          if(Number(meta.duration)>0&&Number(meta.duration)<60)throw new Error('Materiał krótszy niż minuta — pomijam wstawkę.');
+          if(link.minimumDuration&&Number(meta.duration)<link.minimumDuration)throw new Error('Nagranie jest zbyt krótkie, aby zawierało wszystkie części wybranego odcinka.');
+          const playerAddress=playerTargets.values().next().value;
+          if(playerAddress)playerRoute(source.id,pageURL,currentLink(),playerAddress);
+          return {...candidate,host:link.host,quality:meta.height+'p',version:link.version,audioCodec:meta.audioCodec,duration:Number(meta.duration)||undefined};
         }catch(error){console.warn('media_probe_failure',JSON.stringify({kind:found.kind,host:new URL(found.url).hostname,message:String(error.message).replace(/https?:\/\/\S+/g,'[adres]').slice(0,200)}));}}
         throw new Error('Nie udało się potwierdzić działającego strumienia.');
       }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);context.off('page',newPage);context.off('request',requestObserver);context.off('response',responseObserver);for(const target of pages)if(target!==page)await target.close().catch(()=>{});}

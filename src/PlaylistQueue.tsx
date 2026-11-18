@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {Play,Search} from 'lucide-react';
 import {Modal} from './components';
 import type {Playlist,PlaylistEntry} from './playlist';
+import {playlistEpisodeCode} from './playlist';
 
 type Props={
   playlist:Playlist;
@@ -11,9 +12,7 @@ type Props={
 
 function label(entry:PlaylistEntry) {
   const title=entry.media?.title||String(entry.metadata.series_title||'');
-  const episode=entry.season!==null&&entry.episode!==null
-    ?'S'+String(entry.season).padStart(2,'0')+'E'+String(entry.episode).padStart(2,'0')
-    :'';
+  const episode=playlistEpisodeCode(entry);
   return [title,episode,entry.label!==title?entry.label:''].filter(Boolean).join(' · ');
 }
 

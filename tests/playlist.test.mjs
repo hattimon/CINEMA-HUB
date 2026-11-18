@@ -117,15 +117,17 @@ test('playlist tables are initialized only when the authenticated playlist API i
   assert.deepEqual(call('get','/api/playlists'),[]);
   assert.deepEqual(schema(),['playlist_entries','playlists']);
 });
-test('Stargate full preset has exactly 317 ordered episodes and films',()=>{
+test('The full chronology represents 317 episodes and films with 315 recordings',()=>{
   const preset=normalizedImport(readPreset('stargate_chronologia_cinema_hub.json'),'json');
-  assert.equal(preset.entries.length,317);
+  assert.equal(preset.entries.length,315);
+  assert.equal(preset.entries.filter(entry=>entry.metadata.episode_end===2).length,2);
   assert.equal(preset.entries.filter(e=>e.metadata.series_code==='FILM').length,3);
   assert.equal(preset.entries[0].metadata.key,'FILM:1994');
 });
-test('Stargate partial preset has 162 entries',()=>{
+test('The partial chronology uses 161 recordings with the joined pilot',()=>{
   const preset=normalizedImport(readPreset('stargate_od_s08_cinema_hub.json'),'json');
-  assert.equal(preset.entries.length,162);
+  assert.equal(preset.entries.length,161);
+  assert.equal(preset.entries.filter(entry=>entry.metadata.episode_end===2).length,1);
 });
 test('CSV parser supports semicolons, quoted newlines and doubled quotes',()=>{
   const rows=csvRows('label;metadata_json\n"A;B";"""C""\nD"\n');

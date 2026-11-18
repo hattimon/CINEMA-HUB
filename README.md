@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/assets/banner.svg" alt="Cinema Hub — Twoje kino, Twoje źródła" width="100%"></p>
 
 <p align="center">
-<img alt="Serwer 1.3.21" src="https://img.shields.io/badge/serwer-1.3.21-a28aff">
+<img alt="Serwer 1.3.22" src="https://img.shields.io/badge/serwer-1.3.22-a28aff">
 <img alt="Android TV 1.3.11" src="https://img.shields.io/badge/Android_TV-1.3.11-3ddc84">
 <img alt="Docker amd64 i arm64" src="https://img.shields.io/badge/Docker-amd64_%7C_arm64-2496ed">
 </p>
@@ -22,7 +22,7 @@
 
 Każde konto ma własne logowania do źródeł, ustawienia, ulubione, historię oglądania i kolejkę ręcznego zapisu. Repozytorium zawiera kod aplikacji i gotowy klient APK, bez filmów oraz danych użytkowników.
 
-<p align="center"><a href="https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.21"><strong>Pobierz serwer 1.3.21</strong></a> · <a href="docs/INSTALL.md">Instalacja Docker</a> · <a href="docs/ANDROID-TV.md">Android TV i pilot</a> · <a href="docs/SOURCES.md">Konfiguracja źródeł</a></p>
+<p align="center"><a href="https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.22"><strong>Pobierz serwer 1.3.22</strong></a> · <a href="docs/INSTALL.md">Instalacja Docker</a> · <a href="docs/ANDROID-TV.md">Android TV i pilot</a> · <a href="docs/SOURCES.md">Konfiguracja źródeł</a></p>
 
 ## Instalacja jednym kliknięciem przez DCC
 
@@ -54,11 +54,11 @@ Wybierz host Docker na Windows lub Linux, otwórz sklep aplikacji i kliknij **SK
 | Raspberry Pi | Docker na systemie 64-bit ARM64 + Cinema Hub | `http://IP_RASPBERRY_PI:9999/` |
 | Android TV / Google TV | [CinemaHub-AndroidTV-v1.3.11.apk](https://github.com/hattimon/CINEMA-HUB/releases/tag/android-v1.3.11) | Wpisujesz IP i port wybranego serwera |
 
-APK **1.3.11** współpracuje z panelem serwera **1.3.21**. Pobiera aktualny panel z serwera, więc nowe funkcje biblioteki i źródeł nie wymagają każdorazowej instalacji APK. W tym wydaniu Android TV ma boczny panel efektów obrazu i dźwięku. Aplikacja sprawdza nowe wydanie przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
+APK **1.3.11** współpracuje z panelem serwera **1.3.22**. Pobiera aktualny panel z serwera, więc nowe funkcje biblioteki i źródeł nie wymagają każdorazowej instalacji APK. W tym wydaniu Android TV ma boczny panel efektów obrazu i dźwięku. Aplikacja sprawdza nowe wydanie przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
 
 ## Szybki start
 
-Pobierz paczkę `CinemaHub-Server-v1.3.21.zip` z [wydania serwera 1.3.21](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.21) i rozpakuj ją albo sklonuj repozytorium:
+Pobierz paczkę `CinemaHub-Server-v1.3.22.zip` z [wydania serwera 1.3.22](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.22) i rozpakuj ją albo sklonuj repozytorium:
 
 ```sh
 git clone https://github.com/hattimon/CINEMA-HUB.git
@@ -77,7 +77,7 @@ cd CINEMA-HUB
 sh install-raspberry-pi.sh
 ```
 
-Instalatory tworzą lokalny plik `.env` z losowym hasłem startowego konta **admin**, jeśli plik jeszcze nie istnieje. Hasło odczytasz z pola `INITIAL_ADMIN_PASSWORD` w swoim `.env`. Konto startowe jest tworzone tylko dla nowej bazy. Gotowy obraz pochodzi z `ghcr.io/hattimon/cinema-hub:1.3.21`; możesz też zbudować go lokalnie: Windows `-Build`, Pi `--build`.
+Instalatory tworzą lokalny plik `.env` z losowym hasłem startowego konta **admin**, jeśli plik jeszcze nie istnieje. Hasło odczytasz z pola `INITIAL_ADMIN_PASSWORD` w swoim `.env`. Konto startowe jest tworzone tylko dla nowej bazy. Gotowy obraz pochodzi z `ghcr.io/hattimon/cinema-hub:1.3.22`; możesz też zbudować go lokalnie: Windows `-Build`, Pi `--build`.
 
 Pełna instrukcja, porty, aktualizacje i kopie danych: **[Instalacja i utrzymanie](docs/INSTALL.md)**.
 

@@ -22,6 +22,8 @@ const table='<table id="links"><tbody><tr><td><a href="#" data-link-id="101"><im
 const movie=`<div id="single-info"><h1>Film próbny<span>ONLINE PL</span></h1><a href="/filmy/category:1/">Akcja</a><a href="/filmy/category:12/">Dramat</a><p>2025</p></div><div id="single-poster"><img class="main-poster" src="/poster.jpg">OCENA UŻYTKOWNIKÓW 4.77 /5 IMDB 8.3 /10</div><div id="item-content"><p>Pełny opis filmu</p></div>${table}`;
 let fixture,origin,base,admin,other,source,item,playback,filmBuffer,tsBuffer,portalSource,hostingClicks=0,movieVisits=0,viderCatalogVisits=0,viderPlayerClicks=0,playerPauseClicks=0;
 let backgroundPings=0,trackedHostingClicks=0;
+let rotatingUploadVisits=0;
+const selectedUploads=[];
 let stargateFixture;
 const cloudFiles=new Map();
 const hasTools=spawnSync('ffmpeg',['-version']).status===0&&spawnSync('ffprobe',['-version']).status===0;
@@ -73,6 +75,16 @@ before(async()=>{
     if(url.pathname==='/search-library/')return res.end('<a href="Stargate.mp4">Stargate 1994.mp4</a>');
     if(url.pathname==='/search/movies/Stargate/0')return res.end('<div id="LoadGeneralContent"><a href="/dir/+account">Kolekcja konta</a><ul id="search_files_result"><div>Proszę czekać, szukam...</div></ul><div id="search_pages_1"></div></div><script>setTimeout(()=>{document.querySelector("#search_files_result").innerHTML='+JSON.stringify('<li><a href="/vid/+sg1" title="Stargate SG-1 S01E01">Stargate SG-1 S01E01</a></li><li><a href="/vid/+movie" title="Stargate 1994">Stargate 1994</a></li>')+';document.querySelector("#search_pages_1").innerHTML='+JSON.stringify('<span data-href="/search/movies/Stargate/1">Następna</span>')+';},600);</script>');
     if(url.pathname==='/search/movies/Stargate/1')return res.end('<div id="LoadGeneralContent"><ul id="search_files_result"><li><a href="/vid/+atlantis" title="Stargate Atlantis S01E01">Stargate Atlantis S01E01</a></li></ul><div id="search_pages_1"><span data-href="/search/movies/Stargate/0">Poprzednia</span></div></div>');
+    if(url.pathname==='/m/rotating-upload'){
+      const id=++rotatingUploadVisits===1?'101':'201';
+      return res.end(movie.replace('data-link-id="101"','data-id="'+id+'" data-link-id="'+id+'"')
+        +'<script>document.querySelector("[data-link-id]").onclick=async event=>{event.preventDefault();const id=event.currentTarget.getAttribute("data-id");const data=await(await fetch("/link/rotating-token?id="+id)).json();const frame=document.createElement("iframe");frame.src=atob(data.url);document.body.append(frame);};</script>');
+    }
+    if(url.pathname==='/link/rotating-token'){
+      const id=url.searchParams.get('id');selectedUploads.push(id);
+      return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+(id==='101'?'/episode-player':'/wrong-upload')).toString('base64')}));
+    }
+    if(url.pathname==='/wrong-upload')return res.end('<video src="/bad.mp4" autoplay muted></video>');
     if(url.pathname==='/link/token'){hostingClicks++;return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/player-fixture').toString('base64')}));}
     if(url.pathname==='/link/episode-token')return res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({ok:true,url:Buffer.from(origin+'/episode-player').toString('base64')}));
     if(url.pathname==='/episode-player')return res.end('<video src="/film.mp4" autoplay muted controls></video>');
@@ -726,7 +738,8 @@ test('A stalled hosting times out, pauses before fallback and can be retried wit
 test('Manual portal probing uses one hosting and excludes dead or ad content',{skip:!hasTools||!process.env.CHROMIUM_PATH},async()=>{
   const result=await request('/sources',{name:'Portal fixture',type:'filman',url:origin+'/',credentials:{}});portalSource=result.value;const cat=(await request('/catalog',{sources:[result.value.id],kind:'movies',query:'Film',filters:{category:['1','12'],quality:['3']}})).value;assert.equal(cat.errors.length,0,JSON.stringify(cat.errors));assert.equal(cat.groups[0].items.length,1);
   const detail=(await request('/items/'+cat.groups[0].items[0].id)).value;assert.equal(detail.sources.length,2);assert.equal((await request('/items/'+detail.id+'/check',{})).status,400);
-  const startedAt=Date.now(),clicksBefore=hostingClicks,pauseClicksBefore=playerPauseClicks;const started=await request('/items/'+detail.id+'/check',{linkId:'retired-link-id',link:detail.sources[0]});assert.equal(started.status,200,JSON.stringify(started.value));assert.equal(started.value.selectedLinkId,'101');let check;const probeDeadline=Date.now()+(process.arch==='arm64'?90000:24000);while(Date.now()<probeDeadline){check=(await request('/checks/'+started.value.id)).value;if(check.status!=='checking')break;await new Promise(r=>setTimeout(r,150));}assert.equal(check.ready.length,1,check.lastError);assert.equal(check.total,1);assert.equal(hostingClicks-clicksBefore,1);assert.equal(playerPauseClicks-pauseClicksBefore,0,'A buffering video must not be toggled into pause by the resolver');assert.ok(Date.now()-startedAt<(process.arch==='arm64'?90000:20000),'Empty frames must not incur 30-second locator waits');
+  const retired=await request('/items/'+detail.id+'/check',{linkId:'retired-link-id',link:detail.sources[0]});assert.equal(retired.status,400);
+  const startedAt=Date.now(),clicksBefore=hostingClicks,pauseClicksBefore=playerPauseClicks;const started=await request('/items/'+detail.id+'/check',{linkId:detail.sources[0].id,link:detail.sources[0]});assert.equal(started.status,200,JSON.stringify(started.value));assert.equal(started.value.selectedLinkId,'101');let check;const probeDeadline=Date.now()+(process.arch==='arm64'?90000:24000);while(Date.now()<probeDeadline){check=(await request('/checks/'+started.value.id)).value;if(check.status!=='checking')break;await new Promise(r=>setTimeout(r,150));}assert.equal(check.ready.length,1,check.lastError);assert.equal(check.total,1);assert.equal(hostingClicks-clicksBefore,1);assert.equal(playerPauseClicks-pauseClicksBefore,0,'A buffering video must not be toggled into pause by the resolver');assert.ok(Date.now()-startedAt<(process.arch==='arm64'?90000:20000),'Empty frames must not incur 30-second locator waits');
   const automatic=await request('/items/'+detail.id+'/check',{auto:true,preferredVersion:'Lektor'});assert.equal(automatic.status,200);const autoCheck=(await request('/checks/'+automatic.value.id)).value;assert.equal(autoCheck.status,'done');assert.equal(autoCheck.total,2);assert.equal(autoCheck.checked,1);assert.equal(hostingClicks-clicksBefore,1);
   const owner=(await request('/auth/me')).value;media.playbacks.delete(check.ready[0].playbackId);await assert.rejects(media.freshPlayback({playbackId:check.ready[0].playbackId,userId:owner.id,sourceId:result.value.id,pageURL:detail.url,link:detail.sources[0]}),/ręcznie/);assert.equal(hostingClicks-clicksBefore,1,'An expired download must not click Filman again');
   const cached=store.db.prepare('SELECT secret FROM player_routes WHERE source_id=?').get(result.value.id);assert.ok(cached);assert.equal(cached.secret.includes(origin),false);
@@ -779,10 +792,63 @@ test('A selected episode rejects unrelated full-length video and validates the p
     }
   });
 
+test('Reloading the hosting table preserves the selected upload on the same provider',
+  {skip:!hasTools||!process.env.CHROMIUM_PATH,timeout:60000},async()=>{
+    const account=store.addUser('upload-selection-fixture','Upload-selection-fixture-91');
+    const sourceId=store.db.prepare('SELECT id FROM sources WHERE user_id=?').get(account.id).id;
+    store.db.prepare('UPDATE sources SET url=? WHERE id=?').run(origin+'/',sourceId);
+    const source=store.getSource(sourceId,account.id);
+    const address=origin+'/m/rotating-upload';
+    rotatingUploadVisits=0;selectedUploads.length=0;
+    try{
+      const listed=parseDetail(await sourceBrowser.html(source,address),address);
+      assert.equal(listed.sources[0].id,'101');
+      const candidate=await sourceBrowser.resolve(source,address,listed.sources[0],()=>{},{fresh:true});
+      assert.equal(candidate.url,origin+'/film.mp4');
+      assert.deepEqual(selectedUploads,['101']);
+      assert.equal(rotatingUploadVisits,2);
+    }finally{
+      await sourceBrowser.removeSource(sourceId,()=>store.deleteSource(sourceId,account.id));
+    }
+  });
+
+test('Legacy joined episodes preserve the playlist cursor, progress and shuffle state',async()=>{
+  const account=store.addUser('joined-episodes-fixture','Joined-episodes-fixture-91');
+  const login=await request('/auth/login',{username:account.username,password:'Joined-episodes-fixture-91'},null);
+  const cookie=login.response.headers.get('set-cookie').split(';')[0];
+  const sourceId=(await request('/sources',undefined,cookie)).value.find(source=>source.type==='filman').id;
+  const parent=store.saveItem(sourceId,{title:'Stargate Atlantis',kind:'series',url:'https://filman.cc/s/1963/gwiezdne-wrota-atlantyda-stargate-atlantis',
+    episodes:[1,2,3,4].map(number=>({season:1,number,title:'Part '+number,url:'https://filman.cc/e/joined-fixture/'+number}))});
+  const created=await request('/playlists',{name:'Joined episode history'},cookie);
+  assert.equal(created.status,201);
+  const id=created.value.id;
+  const ids=[store.uid(),store.uid(),store.uid(),store.uid()];
+  [3,1,2,4].forEach((number,index)=>{
+    const episode=parent.episodes.find(episode=>episode.number===number);
+    store.db.prepare('INSERT INTO playlist_entries VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+      .run(ids[index],id,index,parent.id,episode.url,1,number,episode.title,JSON.stringify({series_code:'SGA'}),0,index===1?19:index===2?42:0);
+  });
+  store.db.prepare('UPDATE playlists SET mode=?,cursor_id=?,shuffle_remaining=?,shuffle_history=? WHERE id=?')
+    .run('shuffle',ids[2],JSON.stringify([ids[3],ids[1]]),JSON.stringify([ids[0],ids[1]]),id);
+  const result=(await request('/playlists/'+id,undefined,cookie)).value;
+  assert.deepEqual(result.entries.map(entry=>entry.id),[ids[0],ids[1],ids[3]]);
+  assert.deepEqual(result.entries.map(entry=>entry.position),[0,1,2]);
+  assert.equal(result.entries[1].metadata.episode_end,2);
+  assert.equal(result.entries[1].playbackPosition,19);
+  assert.equal(result.entries[1].metadata.combined_parts[0].playbackPosition,42);
+  assert.equal(result.cursorId,ids[1]);
+  assert.deepEqual(result.shuffleRemaining,[ids[3]]);
+  assert.deepEqual(result.shuffleHistory,[ids[0]]);
+  const again=(await request('/playlists/'+id,undefined,cookie)).value;
+  assert.equal(again.revision,result.revision);
+  assert.deepEqual(again.entries,result.entries);
+});
+
 test('Stargate repairs the saved playlist and automatically plays a film and both series from Filman',
   {skip:!hasTools||!process.env.CHROMIUM_PATH,timeout:180000},async()=>{
     const folder=existsSync(resolve('dist/index.html'))?'dist':'public';
     const template=JSON.parse(readFileSync(resolve(folder,'playlists/stargate_chronologia_cinema_hub.json'),'utf8'));
+    const playableItems=template.items.filter(item=>!(item.season===1&&item.episode===2&&['SG1','SGA'].includes(item.series_code)));
     const series=[
       ['SG1','/s/1942/gwiezdne-wrota-stargate-sg-1','Gwiezdne wrota / Stargate SG-1',1997],
       ['SGA','/s/1963/gwiezdne-wrota-atlantyda-stargate-atlantis','Gwiezdne wrota: Atlantyda / Stargate Atlantis',2004],
@@ -841,7 +907,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await page.goto(base);
       await page.getByRole('button',{name:'Playlisty',exact:true}).click();
       await page.getByRole('complementary',{name:'Twoje playlisty'}).getByRole('button',{name:/chronologicznie/}).click();
-      await page.getByText(/317 powiązanych z katalogiem/).waitFor({timeout:90000});
+      await page.getByText(/315 powiązanych z katalogiem/).waitFor({timeout:90000});
       assert.equal(stargateFixture.details.size,5);
       assert.equal(stargateFixture.searches,1,'The moved film was found through the Filman search');
       const repaired=(await request('/playlists/'+legacy.id,undefined,cookie)).value;
@@ -849,7 +915,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       assert.equal(repaired.entries[0].playbackPosition,17);
       assert.deepEqual(repaired.entries.map(item=>item.id),legacy.entries.map(item=>item.id));
       for(let index=0;index<repaired.entries.length;index++){
-        const actual=repaired.entries[index], expected=template.items[index];
+        const actual=repaired.entries[index], expected=playableItems[index];
         assert.equal(actual.needsStargateLink,false,expected.key);
         assert.equal(actual.media.sourceId,sourceId,expected.key);
         if(expected.type==='episode')assert.equal(actual.episodeUrl,origin+episodePath(expected),expected.key);
@@ -858,7 +924,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       const shortResponse=await request('/playlists/presets/season8',{},cookie);
       assert.equal(shortResponse.status,200,JSON.stringify(shortResponse.value));
       const short=shortResponse.value.playlist;
-      assert.equal(short.entries.length,162);
+      assert.equal(short.entries.length,161);
       assert.ok(short.entries.every(item=>item.media?.sourceId===sourceId&&!item.needsStargateLink));
       assert.equal(stargateFixture.searches,1,'The second playlist reuses the resolved catalog');
       assert.equal((await request('/playlists/'+legacy.id+'/resolve-stargate',{},'cinema_session=none')).status,401);
@@ -879,7 +945,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
         }
       }
       const finishVideo=()=>page.locator('.player-overlay video').evaluate(video=>{video.currentTime=video.duration-0.35;});
-      await page.getByRole('button',{name:'Odtwórz SG-1 + Atlantis + filmy (317)',exact:true}).click();
+      await page.getByRole('button',{name:'Odtwórz SG-1 + Atlantis + filmy',exact:true}).click();
       await waitForPlayback('Gwiezdne Wrota / Stargate',null,16);
       await finishVideo();
       await waitForPlayback(series[0][2],'Sezon 1 · Odcinek 1');
@@ -894,9 +960,9 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await page.locator('.playlist-drawer').waitFor({state:'hidden'});
       await waitForPlayback(series[1][2],'Sezon 1 · Odcinek 3');
       await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();
-      const crossover=template.items.findIndex((item,index)=>item.series_code==='SG1'&&template.items[index+1]?.series_code==='SGA');
+      const crossover=playableItems.findIndex((item,index)=>item.series_code==='SG1'&&playableItems[index+1]?.series_code==='SGA');
       assert.ok(crossover>0);
-      const lastSG=template.items[crossover], nextAtlantis=template.items[crossover+1];
+      const lastSG=playableItems[crossover], nextAtlantis=playableItems[crossover+1];
       await page.getByTitle('Odtwórz od tej pozycji',{exact:true}).nth(crossover).click();
       await waitForPlayback(series[0][2],'Sezon '+lastSG.season+' · Odcinek '+lastSG.episode);
       await finishVideo();

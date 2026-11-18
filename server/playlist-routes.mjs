@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { db, uid, now, getItem } from './store.mjs';
 import { needsStargateLink, resolveStargateEntries, stargateEntryKey } from './stargate-playlists.mjs';
+import { combineFilmanPlaylistEntries } from './filman-editions.mjs';
 
 let playlistSchemaReady = false;
 
@@ -142,7 +143,47 @@ function normalizedImport(content,format){
       playbackPosition:Math.max(0,Number(raw.playbackPosition??raw.playback_position)||0)
     });
   });
-  return {name:String(parsed?.name||'Zaimportowana playlista').slice(0,120),description:String(parsed?.description||'').slice(0,2000),mode:mode.safeParse(parsed?.mode).success?parsed.mode:'once',entries:parsedEntries};
+  return {name:String(parsed?.name||'Zaimportowana playlista').slice(0,120),description:String(parsed?.description||'').slice(0,2000),mode:mode.safeParse(parsed?.mode).success?parsed.mode:'once',entries:combineFilmanPlaylistEntries(parsedEntries)};
+}
+
+function normalizeJoinedPlaylists(userId) {
+  tx(() => {
+    const filmanSourceIds = new Set(db.prepare("SELECT id FROM sources WHERE user_id=? AND type='filman'")
+      .all(userId).map(source => source.id));
+    const candidates = db.prepare(`
+      SELECT DISTINCT p.id FROM playlists p JOIN playlist_entries e ON e.playlist_id=p.id
+      WHERE p.user_id=? AND e.season=1 AND e.episode=2
+      AND json_extract(e.metadata,'$.series_code') IN ('SG1','SGA')
+    `).all(userId);
+    for (const {id} of candidates) {
+      const row = playlist(id,userId);
+      const original = entries(id,userId);
+      const combined = combineFilmanPlaylistEntries(original,filmanSourceIds);
+      if (combined.length === original.length) continue;
+      const aliases = new Map();
+      for (const entry of combined) {
+        for (const oldId of entry.combinedEntryIds ?? []) {
+          aliases.set(oldId,entry.id);
+          db.prepare('DELETE FROM playlist_entries WHERE playlist_id=? AND id=?').run(id,oldId);
+        }
+        if (entry.combinedEntryIds?.length) {
+          db.prepare('UPDATE playlist_entries SET label=?,metadata=? WHERE playlist_id=? AND id=?')
+            .run(entry.label,JSON.stringify(entry.metadata),id,entry.id);
+        }
+      }
+      combined.forEach((entry,index) => {
+        db.prepare('UPDATE playlist_entries SET position=? WHERE playlist_id=? AND id=?').run(index,id,entry.id);
+      });
+      const remaining = [...new Set(JSON.parse(row.shuffle_remaining).map(id => aliases.get(id) ?? id))];
+      const history = JSON.parse(row.shuffle_history).map(id => aliases.get(id) ?? id)
+        .filter((id,index,ids) => index === 0 || id !== ids[index-1]);
+      const cursor = aliases.get(row.cursor_id) ?? row.cursor_id;
+      if (history.at(-1) === cursor) history.pop();
+      db.prepare('UPDATE playlists SET cursor_id=?,shuffle_remaining=?,shuffle_history=? WHERE id=?')
+        .run(cursor,JSON.stringify(remaining.filter(id => id !== cursor)),JSON.stringify(history),id);
+      bump(id);
+    }
+  });
 }
 function mapImported(e,userId,catalog){
   if(e.itemId)try{getItem(e.itemId,userId);return e;}catch{
@@ -225,8 +266,9 @@ function prepareStargate(id, userId) {
 
 export function installPlaylistRoutes(app,auth){
   const route='/api/playlists';
-  app.use(route,auth,(_req,_res,next)=>{
+  app.use(route,auth,(req,_res,next)=>{
     ensurePlaylistSchema();
+    normalizeJoinedPlaylists(req.user.id);
     next();
   });
   app.get(route,(req,res)=>res.json(db.prepare('SELECT * FROM playlists WHERE user_id=? ORDER BY updated DESC').all(req.user.id).map(brief)));

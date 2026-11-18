@@ -1,6 +1,7 @@
 import { load } from 'cheerio';
 import { sourceBrowser } from './browser.mjs';
 import { parseCatalog,parseDetail,buildFilterURL } from './filman-parser.mjs';
+import { applyFilmanEditions } from './filman-editions.mjs';
 import { parseViderCatalog,parseViderDetail,viderURL } from './vider-parser.mjs';
 import { textRequest,basicHeaders,sameSourceURL,verifyMedia,networkURL } from './net.mjs';
 import { remoteList,safePath } from './rclone.mjs';
@@ -133,7 +134,7 @@ export async function detail(source,item) {
     if(parsed.challenge)throw Object.assign(new Error('Vider wymaga ręcznego zalogowania lub rozwiązania CAPTCHA w ustawieniach.'),{status:409});
     return {...item,...parsed};
   }
-  if(source.type==='filman'){const parsed=parseDetail(await sourceBrowser.html(source,item.url),item.url);if(!parsed.title)throw Object.assign(new Error('Portal nie udostępnił danych tytułu. Sprawdź sesję lub wykonaj CAPTCHA w ustawieniach.'),{status:409});return {...item,...parsed};}
+  if(source.type==='filman'){const parsed=parseDetail(await sourceBrowser.html(source,item.url),item.url);if(!parsed.title)throw Object.assign(new Error('Portal nie udostępnił danych tytułu. Sprawdź sesję lub wykonaj CAPTCHA w ustawieniach.'),{status:409});return applyFilmanEditions({...item,...parsed});}
   if(source.type==='plex') {
     const headers=credentialsHeaders(source),allowedOrigins=[networkURL(source.url).origin];const $=load(await textRequest(item.url,{headers,allowedOrigins}),{xml:true});const a=$('Video,Directory').first();
     const episodes=[];if(item.kind==='series'){const xml=load(await textRequest(item.url+'/allLeaves',{headers,allowedOrigins}),{xml:true});xml('Video').each((_,e)=>{const v=xml(e);episodes.push({url:new URL(`library/metadata/${v.attr('ratingKey')}`,source.url).href,title:v.attr('title')||'',season:Number(v.attr('parentIndex')),number:Number(v.attr('index'))});});episodes.sort((a,b)=>a.season-b.season||a.number-b.number);}

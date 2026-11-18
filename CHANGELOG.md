@@ -1,5 +1,9 @@
 # Historia wydań
 
+## Kontener 1.3.22 – poprawki odtwarzania playlist
+
+- Poprawki wyboru właściwego nagrania i obsługi odcinków łączonych w automatycznym odtwarzaniu playlist. [Opis wydania](docs/RELEASE-1.3.22.md)
+
 ## Kontener 1.3.21 – poprawki odtwarzania playlist
 
 - Poprawki wyboru źródła i możliwość wybrania innego filmu lub odcinka z bocznego panelu podczas odtwarzania. [Opis wydania](docs/RELEASE-1.3.21.md)

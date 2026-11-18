@@ -3,6 +3,7 @@ import { Plus,Play,Trash2,Copy,Download,Upload,ArrowUp,ArrowDown,Search,RefreshC
 import { api } from './api';
 import type { Item,Episode } from './types';
 import type { Playlist,PlaylistSummary,PlaylistEntry,PlaylistMode,StargatePreparation } from './playlist';
+import {playlistEpisodeCode} from './playlist';
 
 type Props={onPlay:(playlist:Playlist,entry:PlaylistEntry,restart?:boolean)=>void;onMessage:(message:string)=>void};
 const modes:{id:PlaylistMode;label:string;icon:typeof Play}[]=[
@@ -12,12 +13,12 @@ const modes:{id:PlaylistMode;label:string;icon:typeof Play}[]=[
 ];
 const asEntry=(item:Item,episode?:Episode)=>({
   itemId:item.id,episodeUrl:episode?.url||null,season:episode?.season??null,episode:episode?.number??null,
-  label:episode?episode.title:item.title,metadata:{title:episode?.title||item.title,series_title:item.title,season:episode?.season??null,episode:episode?.number??null}
+  label:episode?episode.title:item.title,metadata:{title:episode?.title||item.title,series_title:item.title,season:episode?.season??null,episode:episode?.number??null,episode_end:episode?.lastNumber??null}
 });
 const display=(entry:PlaylistEntry)=>{
   const info=entry.metadata;
   const name=entry.media?.title||String(info.series_title||'');
-  const code=entry.season!==null&&entry.episode!==null?'S'+String(entry.season).padStart(2,'0')+'E'+String(entry.episode).padStart(2,'0'):'';
+  const code=playlistEpisodeCode(entry);
   return [name,code,entry.label].filter(Boolean).join(' · ');
 };
 export default function Playlists({onPlay,onMessage}:Props){
@@ -153,8 +154,8 @@ export default function Playlists({onPlay,onMessage}:Props){
       <button className="button primary" disabled={busy||!newName.trim()} onClick={create}><Plus size={17}/>Utwórz</button>
     </div>
     <div className="playlist-presets"><strong>Gotowe chronologie Stargate z Filmana</strong>
-      <button className="button secondary" disabled={busy} onClick={()=>preset('full')}><Play size={16}/>Odtwórz SG-1 + Atlantis + filmy (317)</button>
-      <button className="button secondary" disabled={busy} onClick={()=>preset('season8')}><Play size={16}/>Odtwórz od SG-1 S08 (162)</button>
+      <button className="button secondary" disabled={busy} onClick={()=>preset('full')}><Play size={16}/>Odtwórz SG-1 + Atlantis + filmy</button>
+      <button className="button secondary" disabled={busy} onClick={()=>preset('season8')}><Play size={16}/>Odtwórz od SG-1 S08</button>
     </div>
     {preparing?<p className="playlist-status" role="status">Dopasowuję filmy i odcinki w Filmanie…</p>:null}
     <div className="playlist-columns">

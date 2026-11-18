@@ -14,6 +14,12 @@ export type Playlist={
 export type PlaylistSummary=Omit<Playlist,'entries'>;
 export type StargatePreparation={playlist:Playlist;message?:string};
 export type QueueState=Pick<Playlist,'cursorId'|'shuffleRemaining'|'shuffleHistory'>;
+export function playlistEpisodeCode(entry:PlaylistEntry) {
+  if(entry.season===null||entry.episode===null)return '';
+  const code='S'+String(entry.season).padStart(2,'0')+'E'+String(entry.episode).padStart(2,'0');
+  const last=Number(entry.metadata.episode_end);
+  return Number.isInteger(last)&&last>entry.episode&&last<=999?code+'–'+String(last).padStart(2,'0'):code;
+}
 const randomize=(ids:string[])=>{
   const copy=[...ids];
   for(let i=copy.length-1;i>0;i--){const index=Math.floor(Math.random()*(i+1));[copy[i],copy[index]]=[copy[index],copy[i]];}
