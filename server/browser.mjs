@@ -220,9 +220,18 @@ export class SourceBrowser {
     const pending=this.page(source,url,async page=>{
       if(source.type!=='vider')await page.waitForFunction(()=>!!document.querySelector('#item-list,#single-info,.item-list,#links,[id^="filter-"],input[type="password"],video') || /Just a moment|Verify you are human/.test(document.title),null,{timeout:5000}).catch(()=>{});
       if(source.type==='filman'&&await page.evaluate(filmanPageState,new URL(source.url).origin)==='challenge')throw filmanNeedsVerification();
+      let complete=true;
+      if(source.type==='filman'&&/^\/(?:s|serial-online-pl|m|film-online-pl|e)\//.test(new URL(url).pathname)){
+        const series=/^\/(?:s|serial-online-pl)\//.test(new URL(url).pathname);
+        complete=await page.waitForFunction(series=>{
+          const content=document.querySelector(series?'.episode-list,#episode-list':'#links');
+          if(content?.querySelector(series?'a[href*="/e/"]':'a[data-link-id]'))return true;
+          return !!content&&/brak (?:odcink|link|źród)|nie (?:ma|dodano) (?:odcink|link|źród)/i.test(content.textContent||'');
+        },series,{timeout:8000}).then(()=>true,()=>false);
+      }
       const value=await page.content();
       const challenge=source.type==='filman' ? false : await page.evaluate(()=>/Just a moment|Verify you are human|captcha/i.test(document.title)||[...document.querySelectorAll('.g-recaptcha,iframe[src*="captcha"],#cf-challenge-running')].some(e=>e.getBoundingClientRect().width>0));
-      if(!challenge&&!this.retired.has(source.id)){if(this.cache.size>150)this.cache.delete(this.cache.keys().next().value);this.cache.set(key,{value,expires:Date.now()+5*60000});}
+      if(complete&&!challenge&&!this.retired.has(source.id)){if(this.cache.size>150)this.cache.delete(this.cache.keys().next().value);this.cache.set(key,{value,expires:Date.now()+5*60000});}
       return value;
     }).finally(()=>{if(this.htmlPending.get(key)===pending)this.htmlPending.delete(key);});
     this.htmlPending.set(key,pending);return pending;
