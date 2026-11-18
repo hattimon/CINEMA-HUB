@@ -1,13 +1,17 @@
 # Historia wydań
 
-## Kontener 1.3.20 – gotowe playlisty Stargate
+## Kontener 1.3.21 – poprawki odtwarzania playlist
 
-- Gotowe chronologie Stargate przygotowują pełne powiązania do Filmana i uruchamiają odtwarzanie jednym kliknięciem.
+- Poprawki wyboru źródła i możliwość wybrania innego filmu lub odcinka z bocznego panelu podczas odtwarzania. [Opis wydania](docs/RELEASE-1.3.21.md)
+
+## Kontener 1.3.20 – automatyczne przygotowanie playlist
+
+- Playlisty mogą automatycznie dopasowywać dostępne tytuły i uruchamiać odtwarzanie jednym kliknięciem.
 - Otwarcie wcześniejszej playlisty uzupełnia brakujące powiązania i zapisuje dokładne odnośniki do odcinków z zachowaniem postępu. [Opis wydania](docs/RELEASE-1.3.20.md)
 
 ## Kontener 1.3.19 – playlisty i logowanie do Filmana
 
-- Prywatne playlisty filmów i odcinków z zapisem postępu, importem JSON i CSV oraz dwiema chronologiami Stargate.
+- Prywatne playlisty filmów i odcinków z zapisem postępu oraz importem i eksportem JSON i CSV.
 - Cinema Hub może wznowić ostatnie konto Filmana i spróbować prostej weryfikacji. Zmianę konta uruchamia użytkownik.
 - Wersjonowany obraz DCC dla Windows z Docker Desktop oraz Linuksa na amd64 i ARM64. [Opis i aktualizacja](docs/RELEASE-1.3.19.md)
 

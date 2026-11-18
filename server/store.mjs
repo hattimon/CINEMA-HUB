@@ -34,7 +34,7 @@ export function passwordMatches(value, saved) { try { const [salt,hash] = saved.
 export function encrypt(value) { const iv = randomBytes(12); const c = createCipheriv('aes-256-gcm',key,iv); const result = Buffer.concat([c.update(JSON.stringify(value),'utf8'),c.final()]); return Buffer.concat([iv,c.getAuthTag(),result]).toString('base64'); }
 export function decrypt(value) { const b=Buffer.from(value,'base64'); const c=createDecipheriv('aes-256-gcm',key,b.subarray(0,12)); c.setAuthTag(b.subarray(12,28)); return JSON.parse(Buffer.concat([c.update(b.subarray(28)),c.final()]).toString()); }
 export function playerRoute(sourceId,pageURL,link,address) {
-  const fingerprint=hashId(JSON.stringify([pageURL,link.host,link.version,link.quality]));
+  const fingerprint=hashId(JSON.stringify(['selected-player-v2',pageURL,link.id,link.host,link.version,link.quality]));
   db.prepare('DELETE FROM player_routes WHERE expires<?').run(now());
   if(address){db.prepare('INSERT INTO player_routes VALUES(?,?,?,?) ON CONFLICT(source_id,fingerprint) DO UPDATE SET secret=excluded.secret,expires=excluded.expires').run(sourceId,fingerprint,encrypt({address}),now()+10*60000);return address;}
   const row=db.prepare('SELECT secret FROM player_routes WHERE source_id=? AND fingerprint=? AND expires>?').get(sourceId,fingerprint,now());

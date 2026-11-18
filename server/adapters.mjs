@@ -142,10 +142,10 @@ export async function detail(source,item) {
   }
   return {...item,episodes:[],sources:[{id:'file',host:source.name,version:'Oryginał',quality:item.quality||'Oryginał',url:item.url,bytes:item.bytes}]};
 }
-export async function resolveLink(source,pageURL,link,onProgress,{signal,fresh=false}={}) {
+export async function resolveLink(source,pageURL,link,onProgress,{signal,fresh=false,expectedSelection}={}) {
   signal?.throwIfAborted();
   if(source.type==='vider')return sourceBrowser.resolveVider(source,pageURL,link,onProgress,{signal});
-  if(source.type==='filman')return sourceBrowser.resolve(source,pageURL,link,onProgress,{signal,fresh});
+  if(source.type==='filman')return sourceBrowser.resolve(source,pageURL,link,onProgress,{signal,fresh,expectedSelection});
   const remote=['ftp','webdav','s3'].includes(source.type);
   const candidate=remote?{kind:'remote',url:link.url,sourceId:source.id,userId:source.user_id,bytes:link.bytes,host:link.host,version:link.version,quality:link.quality}:{kind:/m3u8/i.test(link.url)?'hls':/\.webm(?:[?#]|$)/i.test(link.url)?'webm':'mp4',url:sameSourceURL(link.url,source.url),headers:credentialsHeaders(source),allowedOrigins:[networkURL(source.url).origin],host:link.host,version:link.version,quality:link.quality};
   if(!remote)await verifyMedia(candidate,{signal});const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(candidate,{signal});candidate.quality=meta.height+'p';candidate.bytes=Number(meta.size)||candidate.bytes;candidate.audioCodec=meta.audioCodec;candidate.duration=Number(meta.duration)||undefined;return candidate;

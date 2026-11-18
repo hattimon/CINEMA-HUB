@@ -132,7 +132,7 @@ app.post('/api/items/:id/check',auth,asyncRoute(async(req,res)=>{const b=z.objec
     if(links.some(link=>!link.sourceId||link.sourceId===source.id))assertSourceAvailable(source.id);
     if(b.auto){const preferences=getSettings(req.user.id);links=orderHostingLinks(links,b.preferredVersion||preferences.preferredVersion,[b.preferredHost,...preferences.preferredHosts].filter(Boolean));}
   }
-  res.json({id:beginCheck(req.user.id,source,item,episode,links,{stopOnSuccess:b.auto,fresh:b.fresh}),total:links.length,selectedLinkId:b.linkId?links[0].id:undefined});
+  res.json({id:beginCheck(req.user.id,source,item,episode,links,{stopOnSuccess:b.auto,fresh:b.fresh,expectedSelection:{title:item.title,kind:item.kind,year:item.year,episode:episode?{season:episode.season,number:episode.number}:undefined}}),total:links.length,selectedLinkId:b.linkId?links[0].id:undefined});
 }));
 app.get('/api/items/:id/links',auth,asyncRoute(async(req,res)=>{const item=getItem(req.params.id,req.user.id),source=getSource(item.sourceId,req.user.id);const episode=req.query.episode?item.episodes?.find(e=>e.url===req.query.episode):null;if(req.query.episode&&!episode)throw fail('Nieprawidłowy odcinek.');const links=await itemLinks(req.user.id,item,source,episode);res.json(links.map(({id,host,version,quality})=>({id,host,version,quality})));}));
 app.get('/api/items/:id/ready',auth,(req,res,next)=>{try{

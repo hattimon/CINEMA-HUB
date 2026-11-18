@@ -57,7 +57,13 @@ before(async()=>{
         stargateFixture.details.add(url.pathname);
         return res.end(page);
       }
-      if(url.pathname.startsWith('/e/stargate-fixture/'))return res.end(stargateFixture.playerPage);
+      if(url.pathname.startsWith('/e/stargate-fixture/')){
+        const [,code,episode]=url.pathname.match(/\/stargate-fixture\/(SG1|SGA)\/(S\d+E\d+)/)||[];
+        const title=code==='SG1'?'Gwiezdne wrota / Stargate SG-1':'Gwiezdne wrota: Atlantyda / Stargate Atlantis';
+        return res.end(stargateFixture.playerPage.replace('Film próbny',title)
+          .replace('<p>2025</p>','<p>'+(code==='SG1'?1997:2004)+'</p>')
+          .replace('<h1>','<div class="episode-subtitle">['+episode+'] Odcinek testowy</div><h1>'));
+      }
       if(url.pathname==='/search'&&url.searchParams.get('phrase')==='Stargate'){
         stargateFixture.searches++;
         return res.end(stargateFixture.searchPage);
@@ -80,7 +86,18 @@ before(async()=>{
     if(url.pathname==='/popup-ad')return res.end('<html>Advertisement popup</html>');
     if(url.pathname==='/s/1/serial')return res.end(movie.replace('Film próbny','Serial próbny')+'<div class="episode-list"><a href="/e/first">[s01e01] Pierwszy</a><a href="/e/second">[s01e02] Drugi</a></div>');
     // Episode navigation uses a minimal real player; the separate resolver test exercises popups and gates.
-    if(['/e/first','/e/second'].includes(url.pathname))return res.end(movie+'<script>document.querySelectorAll("[data-link-id]").forEach(link=>link.onclick=async event=>{event.preventDefault();const data=await(await fetch("/link/episode-token")).json();const player=document.createElement("a");player.href=atob(data.url);player.target="_blank";player.textContent="Przejdź do Odtwarzacza";document.body.append(player);});</script>');
+    if(['/e/first','/e/second'].includes(url.pathname))return res.end(movie.replace('Film próbny','Serial próbny')
+      .replace('<h1>','<div class="episode-subtitle">[s01e0'+(url.pathname==='/e/first'?1:2)+'] Odcinek</div><h1>')
+      +'<script>document.querySelectorAll("[data-link-id]").forEach(link=>link.onclick=async event=>{event.preventDefault();const data=await(await fetch("/link/episode-token")).json();const player=document.createElement("a");player.href=atob(data.url);player.target="_blank";player.textContent="Przejdź do Odtwarzacza";document.body.append(player);});</script>');
+    if(url.pathname==='/e/verified-selection')return res.end(movie.replace('Film próbny','Selected series')
+      .replace('<h1>','<div class="episode-subtitle">[s01e03] Selected episode</div><h1>')
+      +'<script>let started=false;document.querySelector("[data-link-id]").onclick=event=>{event.preventDefault();if(started)return;started=true;'
+      +'const tracker=document.createElement("iframe");tracker.src="/unrelated-long-player";document.body.append(tracker);'
+      +'fetch("/link/selection-token").then(response=>response.json()).then(data=>{const player=document.createElement("iframe");player.src=atob(data.url);document.body.append(player);});};</script>');
+    if(url.pathname==='/unrelated-long-player')return res.end('<video src="/unrelated-film.mp4" autoplay muted preload="auto"></video>');
+    if(url.pathname==='/unrelated-film.mp4')return sendFilm(req,res);
+    if(url.pathname==='/link/selection-token')return setTimeout(()=>res.writeHead(200,{'Content-Type':'application/json'})
+      .end(JSON.stringify({ok:true,url:Buffer.from(origin+'/episode-player').toString('base64')})),1400);
     if(url.pathname==='/m/test'){
       // The detail cache has old IDs; the next browser page hydrates a fresh table later.
       const delayed=++movieVisits>1,fresh=table.replace('data-link-id="101"','data-link-id="301"').replace('<td>Lektor</td>','<td>\n Lektor \n</td>');
@@ -737,6 +754,31 @@ test('Auto ignores background AJAX and tracker frames before the actual hosting 
   }finally{await request('/sources/'+portal.id,undefined,admin,'DELETE');}
 });
 
+test('A selected episode rejects unrelated full-length video and validates the portal episode',
+  {skip:!hasTools||!process.env.CHROMIUM_PATH,timeout:60000},async()=>{
+    const account=store.addUser('selection-fixture','Selection-fixture-91');
+    const sourceId=store.db.prepare('SELECT id FROM sources WHERE user_id=?').get(account.id).id;
+    store.db.prepare('UPDATE sources SET url=? WHERE id=?').run(origin+'/',sourceId);
+    const source=store.getSource(sourceId,account.id);
+    const address=origin+'/e/verified-selection';
+    const link={id:'101',host:'Działający hosting',version:'Lektor',quality:'720p'};
+    const expectedSelection={title:'Selected series',kind:'series',year:2025,episode:{season:1,number:3}};
+    try{
+      await assert.rejects(sourceBrowser.resolve(source,address,link,()=>{},{
+        expectedSelection:{...expectedSelection,episode:{season:1,number:2}},
+      }),/inny tytuł lub odcinek/);
+      const candidate=await sourceBrowser.resolve(source,address,link,()=>{},{expectedSelection});
+      assert.equal(candidate.url,origin+'/film.mp4');
+      assert.notEqual(candidate.url,origin+'/unrelated-film.mp4');
+      const cached=store.playerRoute(source.id,address,link);
+      assert.equal(cached,origin+'/episode-player');
+      assert.equal(store.playerRoute(source.id,address,{...link,id:'102'}),undefined);
+      assert.equal(store.playerRoute(source.id,origin+'/e/different-episode',link),undefined);
+    }finally{
+      await sourceBrowser.removeSource(sourceId,()=>store.deleteSource(sourceId,account.id));
+    }
+  });
+
 test('Stargate repairs the saved playlist and automatically plays a film and both series from Filman',
   {skip:!hasTools||!process.env.CHROMIUM_PATH,timeout:180000},async()=>{
     const folder=existsSync(resolve('dist/index.html'))?'dist':'public';
@@ -841,6 +883,16 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await waitForPlayback('Gwiezdne Wrota / Stargate',null,16);
       await finishVideo();
       await waitForPlayback(series[0][2],'Sezon 1 · Odcinek 1');
+      const initialSource=await page.locator('.player-overlay video').getAttribute('src');
+      await page.getByRole('button',{name:'Playlista',exact:true}).click();
+      await page.locator('.playlist-drawer').waitFor({state:'visible'});
+      assert.equal(await page.locator('.player-overlay video').getAttribute('src'),initialSource);
+      assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.paused),false);
+      await page.getByLabel('Znajdź w playliście',{exact:true}).fill('S01E03');
+      if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'cinema-playlist-panel.png')});
+      await page.locator('.playlist-drawer').getByRole('button',{name:/Atlantis.*S01E03/}).click();
+      await page.locator('.playlist-drawer').waitFor({state:'hidden'});
+      await waitForPlayback(series[1][2],'Sezon 1 · Odcinek 3');
       await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();
       const crossover=template.items.findIndex((item,index)=>item.series_code==='SG1'&&template.items[index+1]?.series_code==='SGA');
       assert.ok(crossover>0);
@@ -850,7 +902,8 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await finishVideo();
       await waitForPlayback(series[1][2],'Sezon '+nextAtlantis.season+' · Odcinek '+nextAtlantis.episode);
       assert.deepEqual(autoChecks.map(check=>check.episode??null),[
-        null,origin+episodePath(template.items[1]),origin+episodePath(lastSG),origin+episodePath(nextAtlantis),
+        null,origin+episodePath(template.items[1]),origin+'/e/stargate-fixture/SGA/S01E03',
+        origin+episodePath(lastSG),origin+episodePath(nextAtlantis),
       ]);
       assert.ok(autoChecks.every(check=>check.auto===true&&!check.linkId&&check.preferredVersion==='Lektor'));
       const all=(await request('/playlists',undefined,cookie)).value;

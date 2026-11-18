@@ -1,13 +1,13 @@
 # Playlisty i kolejność odtwarzania
 
-## Pierwsza playlista Stargate
+## Utwórz pierwszą playlistę
 
-1. Zaloguj się do Cinema Hub i włącz źródło **Filman** w **Ustawienia → Źródła**.
+1. Zaloguj się do Cinema Hub i włącz własne źródła filmów oraz seriali w **Ustawienia → Źródła**.
 2. Otwórz **Playlisty** w bocznym menu.
-3. W sekcji **Gotowe chronologie Stargate z Filmana** wybierz **Odtwórz SG-1 + Atlantis + filmy (317)** albo **Odtwórz od SG-1 S08 (162)**. Cinema Hub dopasuje filmy oraz dokładne sezony i odcinki, po czym włączy zwykły automatyczny wybór hostingu. Jeżeli lista już istnieje w tej kolejności, wznowi ją od zapisanego miejsca.
-4. Aby naprawić listę zapisaną w starszej wersji, otwórz ją w **Moich playlistach**. Cinema Hub automatycznie uzupełni jej powiązania. Jeżeli Filman wymaga zalogowania, użyj **Zaloguj / CAPTCHA** w ustawieniach źródła, a potem wybierz **Powiąż z Filmanem**.
+3. Wpisz nazwę listy i wybierz **Utwórz**, następnie wyszukaj film lub serial i dodaj wybrany materiał. Do jednej listy można dodać pojedyncze odcinki z różnych seriali i filmy.
+4. Ustaw kolejność oraz tryb, a potem wybierz **Odtwórz playlistę**. **Kontynuuj playlistę** wraca do zapisanego miejsca.
 
-Pełna chronologia obejmuje 214 odcinków SG-1, 100 odcinków Atlantydy i trzy filmy. Cinema Hub pobiera odnośniki do pozycji z Filmana i wyszukuje hosting przy odtwarzaniu. Gdy portal nie udostępni pozycji, playlista podaje powód i pozwala ponowić próbę.
+Odtwarzacz korzysta ze źródeł udostępnionych w Twoim katalogu. Przy odtwarzaniu automatycznym wybiera hosting zgodnie z zapisanymi preferencjami. Jeśli źródło wymaga zalogowania, otwórz **Zaloguj / CAPTCHA** w jego ustawieniach.
 
 ## Własne playlisty
 
@@ -16,13 +16,13 @@ Pełna chronologia obejmuje 214 odcinków SG-1, 100 odcinków Atlantydy i trzy f
 - **Kolejność**: przeciągaj pozycje lub użyj strzałek i przycisku `#`.
 - **Po kolei**: po ostatniej pozycji odtwarzanie się kończy; **W pętli**: powrót do początku; **Losowo**: wszystkie pozostałe pozycje pojawiają się w losowej kolejności przed nowym cyklem.
 - **Kontynuuj playlistę** wraca do ostatnio zapamiętanej pozycji. **Od początku** czyści postęp, oznaczenia obejrzenia, czas wznowienia oraz stan losowania dla **całej** playlisty i rozpoczyna pierwszą pozycję.
-- **Odtwarzacz** pokazuje nazwę playlisty, numer pozycji i zapowiedź następnej. Ma przyciski poprzedni/następny oraz powrót do edytora playlist. W jego dolnym pasku możesz zmienić tryb **Po kolei / W pętli / Losowo** bez ponownego uruchamiania bieżącego filmu.
+- **Odtwarzacz** pokazuje nazwę playlisty, numer pozycji i zapowiedź następnej. Przycisk **Playlista** wysuwa boczny panel z kolejką. Możesz wyszukać dowolny film lub odcinek i uruchomić go bez wychodzenia z odtwarzacza. W dolnym pasku możesz też zmienić tryb **Po kolei / W pętli / Losowo**.
 - **Powiązanie** pozwala naprawić pozycje, których katalog nie rozpoznał podczas importu.
 - **Duplikuj** tworzy osobną kopię; **Usuń** usuwa wyłącznie wybraną playlistę.
 
 ## Import i eksport
 
-W widoku playlisty możesz pobrać **JSON** lub **CSV**. Eksport zawiera opisy, kolejność, numery sezonów i odcinków oraz postęp. Import akceptuje także gotowe pliki Stargate w schemacie `items`. W CSV respektowana jest kolumna `order`, a wartości w cudzysłowach mogą zawierać średniki i znaki nowej linii.
+W widoku playlisty możesz pobrać **JSON** lub **CSV**. Eksport zawiera opisy, kolejność, numery sezonów i odcinków oraz postęp. Import akceptuje listy w schemacie `items` lub `entries`. W CSV respektowana jest kolumna `order`, a wartości w cudzysłowach mogą zawierać średniki i znaki nowej linii.
 
 Identyfikatory mediów różnią się między instalacjami. Podczas importu system próbuje dopasować pozycje do bieżącego katalogu, a przy braku dopasowania zachowuje oryginalne opisy i poprzedni identyfikator w `metadata.original_item_id` do ręcznej naprawy.
 

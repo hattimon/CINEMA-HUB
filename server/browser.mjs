@@ -13,6 +13,8 @@ import { browserHeaded } from './browser-mode.mjs';
 import { launchFilmanBrowser } from './filman-login.mjs';
 import { clickFilmanCheckbox, filmanNeedsVerification, filmanPageState, navigateFilman, watchFilmanCredentials } from './filman-session.mjs';
 import { filmanPosterURL, openFilmanPosterPage, readFilmanPoster } from './filman-posters.mjs';
+import { parseDetail } from './filman-parser.mjs';
+import { sameTitle } from './catalog-match.mjs';
 import { abortable } from './playback-work.mjs';
 
 export function decorativeVideo(address) {
@@ -458,17 +460,35 @@ export class SourceBrowser {
       }finally{context.off('response',observe);page.off('popup',onPopup);for(const popup of popups)await popup.close().catch(()=>{});}
     },{signal});
   }
-  async resolve(source,pageURL,link,onProgress=()=>{},{signal,fresh=false}={}) {
+  async resolve(source,pageURL,link,onProgress=()=>{},{signal,fresh=false,expectedSelection}={}) {
     onProgress('Odczytuję stronę wybranego filmu…');
     return this.page(source,pageURL,async(page,context)=>{
       const candidates=[];let selected=false,playerClick=false,portalRequest=false,blocked=false,blockedUntil,hostingLimit;const pages=new Set([page]),requests=[],responses=[],playerTargets=new Set(),followedTargets=new Set();
       const sourceOrigin=new URL(source.url).origin;
+      let selectedId=link.id;
+      const providerFrames=new WeakSet();
+      const isProviderAddress=address=>{
+        try{
+          const url=new URL(address);
+          return url.hostname===link.host||url.hostname==='embed.tmp-url.pro'||playerTargets.has(url.href);
+        }catch{return false;}
+      };
+      const isProviderNavigation=request=>{
+        for(let current=request;current;current=current.redirectedFrom()){
+          if(isProviderAddress(current.url()))return true;
+        }
+        return false;
+      };
+      const isProviderFrame=frame=>providerFrames.has(frame)||playerTargets.has(frame.url());
+      const currentLink=()=>({...link,id:selectedId});
       const controller=new AbortController();const abort=()=>{controller.abort();for(const target of pages)void target.close().catch(()=>{});};
       const timer=setTimeout(abort,75000);signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
-      const observe=target=>{pages.add(target);target.on('response',response=>{if(!selected)return;const url=response.url(),type=response.headers()['content-type']||'';if(isAdvertisement(url)||decorativeVideo(url))return;
+      const observe=target=>{pages.add(target);target.on('response',response=>{if(!selected)return;let frame;try{frame=response.request().frame();}catch{return;}if(!frame||!isProviderFrame(frame))return;const url=response.url(),type=response.headers()['content-type']||'';if(isAdvertisement(url)||decorativeVideo(url))return;
         if(response.status()>=400){if(response.status()===429&&new URL(url).origin!==sourceOrigin&&['document','media'].includes(response.request().resourceType())){const delay=parseRetryAfter(response.headers()['retry-after']);hostingLimit=Object.assign(new Error('Hosting '+link.host+' ograniczył dostęp.'+(delay?'':' Termin odblokowania nie jest znany.')),{status:429,scope:'hosting',retryAfter:delay?Date.now()+delay:undefined});}return;}if(/\.m3u8(?:[?#]|$)/i.test(url)||/mpegurl/i.test(type)||/video\/mp4/i.test(type))candidates.push({url,kind:/m3u8|mpegurl/i.test(url+' '+type)?'hls':'mp4',referer:response.request().headers().referer||target.url(),headers:response.request().headers()});});};
       const responseObserver=response=>{
         if(!selected)return;const url=new URL(response.url());if(url.origin!==sourceOrigin)return;
+        let frame;try{frame=response.request().frame();}catch{return;}
+        if(frame!==page.mainFrame())return;
         if(response.status()===429){blocked=true;blockedUntil=blockSource(source.id,parseRetryAfter(response.headers()['retry-after']));controller.abort();}
         if(!/\/link\//.test(url.pathname))return;
         const record={status:response.status(),type:response.headers()['content-type']||'',path:url.pathname};responses.push(record);
@@ -485,11 +505,15 @@ export class SourceBrowser {
           record.targetHost=target.hostname;
           // Use only a player address returned by this already completed portal request.
           // Never request another /link/go or /link/token to recover a failed player.
-          if(!isAdvertisement(target.href)&&((target.origin===sourceOrigin&&!/^\/link\/(?:go|token)(?:\/|$)/.test(target.pathname))||target.hostname==='embed.tmp-url.pro'||target.hostname===link.host)){playerTargets.add(target.href);playerRoute(source.id,pageURL,link,target.href);}
+          if(!isAdvertisement(target.href)&&((target.origin===sourceOrigin&&!/^\/link\/(?:go|token)(?:\/|$)/.test(target.pathname))||target.hostname==='embed.tmp-url.pro'||target.hostname===link.host))playerTargets.add(target.href);
         }).catch(()=>{});
       };
       const requestObserver=request=>{
         if(!selected)return;let url;try{url=new URL(request.url());}catch{return;}
+        if(request.resourceType()==='document'&&isProviderNavigation(request)){
+          let frame;try{frame=request.frame();}catch{}
+          if(frame)providerFrames.add(frame);
+        }
         if(request.resourceType()==='document'&&url.origin!==sourceOrigin)requests.push({host:url.hostname,type:'document'});
         if(url.origin===sourceOrigin&&['xhr','fetch'].includes(request.resourceType())){if(/^\/link\//.test(url.pathname))portalRequest=true;requests.push({method:request.method(),path:url.pathname});}
         if(request.resourceType()==='document'&&(url.hostname===link.host||url.hostname==='embed.tmp-url.pro')){
@@ -499,9 +523,38 @@ export class SourceBrowser {
           if(frame?.parentFrame())portalRequest=true;
         }
       };
-      observe(page);const newPage=target=>{observe(target);let trusted=false;const allowed=address=>{try{const u=new URL(address);return u.origin===sourceOrigin||u.hostname===link.host||u.hostname==='embed.tmp-url.pro';}catch{return false;}};target.on('request',request=>{if(request.isNavigationRequest()&&allowed(request.url()))trusted=true;});target.on('framenavigated',frame=>{if(frame!==target.mainFrame())return;const url=frame.url();if(allowed(url))trusted=true;if(isAdvertisement(url)||(!trusted&&/^https?:/.test(url)))void target.close().catch(()=>{});});if(playerClick)void target.close().catch(()=>{});};context.on('page',newPage);context.on('request',requestObserver);context.on('response',responseObserver);
+      observe(page);
+      const newPage=target=>{
+        observe(target);
+        let trusted=false;
+        const allowed=address=>{
+          try{return new URL(address).origin===sourceOrigin||isProviderAddress(address);}
+          catch{return false;}
+        };
+        target.on('request',request=>{
+          if(request.isNavigationRequest()&&allowed(request.url()))trusted=true;
+        });
+        target.on('framenavigated',frame=>{
+          if(frame!==target.mainFrame())return;
+          const url=frame.url();
+          if(allowed(url))trusted=true;
+          if(isProviderAddress(url))providerFrames.add(frame);
+          if(isAdvertisement(url)||(!trusted&&/^https?:/.test(url)))void target.close().catch(()=>{});
+        });
+        if(playerClick)void target.close().catch(()=>{});
+      };
+      context.on('page',newPage);
+      context.on('request',requestObserver);
+      context.on('response',responseObserver);
       try {
-        let selectedId=link.id;
+        if(expectedSelection){
+          const actual=parseDetail(await page.content(),page.url());
+          const expectedEpisode=expectedSelection.episode;
+          if(!sameTitle(expectedSelection,{...actual,kind:expectedSelection.kind})
+            ||expectedEpisode&&(!actual.episode||actual.episode.season!==expectedEpisode.season||actual.episode.number!==expectedEpisode.number)){
+            throw new Error('Filman otworzył inny tytuł lub odcinek. Ponów odczyt katalogu przed odtwarzaniem.');
+          }
+        }
         // On slower devices DOMContentLoaded can precede the portal's hosting table.
         // Waiting for its links reads the page without consuming another hosting token.
         try{await page.locator('#links tbody a[data-link-id]').first().waitFor({state:'attached',timeout:15000});}catch{await hostingDiagnostic(page,'#links',pages);throw new Error('Portal nie załadował listy hostingów. Sprawdź sesję i otwórz ponownie szczegóły.');}
@@ -524,7 +577,7 @@ export class SourceBrowser {
         await button.evaluate(element=>element.scrollIntoView({behavior:'instant',block:'center',inline:'center'}));
         await clearClickAdvertisements(page,selector,new URL(source.url).origin);selected=true;
         if(await button.getAttribute('data-mp4')!==null)throw new Error('Źródło premium wymaga odtworzenia w odtwarzaczu portalu.');
-        const savedPlayer=fresh?undefined:playerRoute(source.id,pageURL,link);
+        const savedPlayer=fresh?undefined:playerRoute(source.id,pageURL,currentLink());
         if(savedPlayer){playerTargets.add(savedPlayer);portalRequest=true;onProgress('Otwieram zapamiętany odtwarzacz bez ponownego pytania portalu…');}
         for(let attempt=0;attempt<5&&!portalRequest&&!controller.signal.aborted;attempt++){
           await button.evaluate(element=>element.scrollIntoView({behavior:'instant',block:'center',inline:'center'}));
@@ -539,6 +592,7 @@ export class SourceBrowser {
         while(Date.now()<deadline&&!controller.signal.aborted) {
           for(const url of playerTargets){if(followedTargets.has(url)||followedTargets.size>=1)continue;followedTargets.add(url);if([...pages].some(p=>!p.isClosed()&&p.frames().some(f=>f.url()===url)))continue;const target=await context.newPage();await target.goto(url,{referer:pageURL,waitUntil:'domcontentloaded',timeout:10000}).catch(()=>{});}
           for(const target of pages) for(const frame of target.frames()) {
+            if(!isProviderFrame(frame))continue;
             if(frame.parentFrame()&&new URL(frame.url()||'about:blank').hostname===link.host&&!openedRedirects.has(frame.url())&&/redirecting/i.test(await frame.title().catch(()=>''))){
               openedRedirects.add(frame.url());const player=await context.newPage();
               await player.goto(frame.url(),{referer:frame.parentFrame().url(),waitUntil:'domcontentloaded',timeout:10000}).catch(()=>{});
@@ -590,7 +644,7 @@ export class SourceBrowser {
         const unique=[...new Map(candidates.reverse().map(c=>[c.url,c])).values()].sort((a,b)=>Number(!!b.provider)-Number(!!a.provider)||Number(b.kind==='hls')-Number(a.kind==='hls')).slice(0,3);
         for(const found of unique) { if(controller.signal.aborted)break;try {
           networkURL(found.url);const cookies=await context.cookies(found.url);const headers={'User-Agent':await page.evaluate(()=>navigator.userAgent),Referer:found.referer};if(cookies.length)headers.Cookie=cookies.map(c=>`${c.name}=${c.value}`).join('; ');if(found.headers.origin)headers.Origin=found.headers.origin;
-          const candidate={url:found.url,kind:found.kind,headers,allowedOrigins:[new URL(source.url).origin]};await verifyMedia(candidate,{signal:controller.signal});const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(candidate,{signal:controller.signal});if(Number(meta.duration)>0&&Number(meta.duration)<60)throw new Error('Materiał krótszy niż minuta — pomijam wstawkę.');return {...candidate,host:link.host,quality:meta.height+'p',version:link.version,audioCodec:meta.audioCodec,duration:Number(meta.duration)||undefined};
+          const candidate={url:found.url,kind:found.kind,headers,allowedOrigins:[new URL(source.url).origin]};await verifyMedia(candidate,{signal:controller.signal});const {probeMedia}=await import('./media.mjs');const meta=await probeMedia(candidate,{signal:controller.signal});if(Number(meta.duration)>0&&Number(meta.duration)<60)throw new Error('Materiał krótszy niż minuta — pomijam wstawkę.');const playerAddress=playerTargets.values().next().value;if(playerAddress)playerRoute(source.id,pageURL,currentLink(),playerAddress);return {...candidate,host:link.host,quality:meta.height+'p',version:link.version,audioCodec:meta.audioCodec,duration:Number(meta.duration)||undefined};
         }catch(error){console.warn('media_probe_failure',JSON.stringify({kind:found.kind,host:new URL(found.url).hostname,message:String(error.message).replace(/https?:\/\/\S+/g,'[adres]').slice(0,200)}));}}
         throw new Error('Nie udało się potwierdzić działającego strumienia.');
       }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);context.off('page',newPage);context.off('request',requestObserver);context.off('response',responseObserver);for(const target of pages)if(target!==page)await target.close().catch(()=>{});}
