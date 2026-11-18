@@ -1318,3 +1318,40 @@ test('Source deletion confirmation and selection refresh work in the rendered UI
 test('Password reset CLI invalidates only the selected user sessions',async()=>{
   const child=spawn(process.execPath,['server/cli.mjs','reset-password','--user','viewer'],{env:process.env,stdio:['pipe','pipe','pipe']});child.stderr.resume();let pending='';child.stdout.on('data',chunk=>{pending+=chunk;if(pending.includes('Nowe hasło')){pending='';child.stdin.write('Viewer-replaced-9\n');}else if(pending.includes('Powtórz')){pending='';child.stdin.write('Viewer-replaced-9\n');}});assert.equal(await new Promise((r,j)=>{child.once('error',j);child.once('exit',r);}),0);assert.equal((await request('/auth/me',null,other)).status,401);assert.equal((await request('/auth/me')).status,200);assert.equal((await request('/auth/login',{username:'viewer',password:'Viewer-replaced-9'},null)).status,200);
 });
+
+test('Playlist HLS playback uses MSE when the browser reports native HLS as maybe',
+  {skip:!hasTools||!process.env.CHROMIUM_PATH,timeout:60000},async()=>{
+    const account=store.addUser('hls-player-fixture','Hls-player-fixture-91');
+    const login=await request('/auth/login',{username:account.username,password:'Hls-player-fixture-91'},null);
+    const cookie=login.response.headers.get('set-cookie').split(';')[0];
+    const source=(await request('/sources',{name:'HLS fixture',type:'http',url:origin+'/',credentials:{}},cookie)).value;
+    await request('/settings',{defaultSources:[source.id]},cookie,'PATCH');
+    const item=store.saveItem(source.id,{url:origin+'/stream.m3u8',title:'HLS hint fixture',kind:'movie',sourceName:source.name});
+    const playlist=(await request('/playlists',{name:'HLS playback fixture'},cookie)).value;
+    const inserted=await request('/playlists/'+playlist.id+'/entries',{entry:{itemId:item.id,label:item.title}},cookie);
+    assert.equal(inserted.status,201);
+    const {chromium}=await import('playwright');
+    const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
+    try{
+      const context=await browser.newContext();
+      await context.addCookies([{name:'cinema_session',value:cookie.slice('cinema_session='.length),url:base}]);
+      await context.addInitScript(()=>{
+        const original=HTMLMediaElement.prototype.canPlayType;
+        HTMLMediaElement.prototype.canPlayType=function(type){return /mpegurl/i.test(type)?'maybe':original.call(this,type);};
+      });
+      const page=await context.newPage();
+      await page.goto(base);
+      await page.getByRole('button',{name:'Playlisty',exact:true}).click();
+      await page.getByRole('complementary',{name:'Twoje playlisty'}).getByRole('button',{name:/HLS playback fixture/}).click();
+      await page.getByRole('button',{name:'Odtwórz playlistę',exact:true}).click();
+      await page.waitForFunction(()=>{
+        const video=document.querySelector('.player-overlay video');
+        return video?.currentSrc.startsWith('blob:')&&video.duration>120&&!video.paused&&video.currentTime>0.4;
+      },null,{timeout:30000});
+      await page.locator('.player-overlay video').evaluate(video=>{video.currentTime=30;});
+      await page.waitForFunction(()=>{
+        const video=document.querySelector('.player-overlay video');
+        return video?.currentTime>31&&video.readyState>=2&&video.videoWidth>0&&!video.paused;
+      },null,{timeout:15000});
+    }finally{await browser.close();}
+  });

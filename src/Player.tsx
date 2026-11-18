@@ -79,7 +79,19 @@ export default function Player({imageProfile,videoEffect,volumeBoost,audioMode='
         bridge.postMessage(JSON.stringify({type:'panel',playbackId,open:current.panelOpen}));return;
       }
       const url=state.localURL||'/api/playback/'+state.source?.playbackId+'/media';
-      if(state.source?.kind==='hls'&&!v.canPlayType('application/vnd.apple.mpegurl')){const {default:Hls}=await import('hls.js');if(disposed)return;if(!Hls.isSupported()){actions.current.onError('Ten strumień nie jest obsługiwany.');return;}const hls=new Hls({enableWorker:true,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:10});destroy=()=>hls.destroy();hls.on(Hls.Events.ERROR,(_event,data)=>{if(!disposed&&data.fatal){setError('Przerwano połączenie ze źródłem.');actions.current.onError('Źródło przestało odpowiadać.');}});hls.loadSource(url);hls.attachMedia(v);}else v.src=url;
+      if(state.source?.kind==='hls'){
+        const {default:Hls}=await import('hls.js');
+        if(disposed)return;
+        if(Hls.isSupported()){
+          const hls=new Hls({enableWorker:true,maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:10});
+          destroy=()=>hls.destroy();
+          hls.on(Hls.Events.ERROR,(_event,data)=>{
+            if(!disposed&&data.fatal){setError('Przerwano połączenie ze źródłem.');actions.current.onError('Źródło przestało odpowiadać.');}
+          });
+          hls.loadSource(url);hls.attachMedia(v);
+        }else if(v.canPlayType('application/vnd.apple.mpegurl'))v.src=url;
+        else{actions.current.onError('Ten strumień nie jest obsługiwany.');return;}
+      }else v.src=url;
       const seek=await savedPosition();if(disposed)return;
       const resume=()=>{if(disposed)return;if(seek&&Number.isFinite(v.duration)&&seek<v.duration-5)v.currentTime=seek;restoring.current=false;void v.play().catch(()=>setPlaying(false));};if(v.readyState>=1)resume();else{v.addEventListener('loadedmetadata',resume,{once:true});const prior=destroy;destroy=()=>{v.removeEventListener('loadedmetadata',resume);prior();};}
     };
