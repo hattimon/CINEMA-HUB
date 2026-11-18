@@ -173,6 +173,7 @@ export default function App() {
   };
   const flushPlaylistPosition=()=>{const p=playlistRef.current;if(p?.cursorId)rememberPlaylistPosition(p.id,p.cursorId,playerPosition.current,true);};
   const playPlaylist=async(p:Playlist,entry:PlaylistEntry,queue?:QueueState,restart=false)=>{
+    if(entry.needsStargateLink){message('Filman nie udostępnił pozycji „'+entry.label+'”. Otwórz playlistę i ponów automatyczne powiązanie.');return;}
     if(!entry.media?.id&&!restart){message('Pozycja nie jest powiązana z katalogiem. Przypisz tytuł w edytorze playlist.');return;}
     if(playlistRef.current?.cursorId!==entry.id||playlistRef.current?.id!==p.id||restart)flushPlaylistPosition();
     const owner=currentUser.current,run=++playlistRun.current,sequence=++detailRequest.current;
@@ -197,7 +198,12 @@ export default function App() {
       if(!entry.media?.id){setPlaylistContext(p);message('Playlista została wyzerowana. Powiąż pierwszą pozycję z katalogiem, aby ją odtworzyć.');return;}
       const item=withLocalProgress(await api<Item>('/items/'+entry.media.id));
       if(owner!==currentUser.current||run!==playlistRun.current||sequence!==detailRequest.current)return;
-      const target=item.kind==='series'?item.episodes?.find(ep=>entry.episodeUrl?ep.url===entry.episodeUrl:(ep.season===entry.season&&ep.number===entry.episode)):undefined;
+      const target=item.kind==='series'
+        ?item.episodes?.find(ep=>ep.url===entry.episodeUrl)
+          ??(!entry.episodeUrl||entry.needsStargateLink!==undefined
+            ?item.episodes?.find(ep=>ep.season===entry.season&&ep.number===entry.episode)
+            :undefined)
+        :undefined;
       if(item.kind==='series'&&!target)throw new Error('Nie znaleziono dokładnego odcinka '+entry.label+'. Powiąż go ponownie w playliście.');
       if(item.kind!=='series'&&entry.episodeUrl)throw new Error('Pozycja wskazuje odcinek, ale w katalogu jest film.');
       const state=queue||(p.cursorId===entry.id?{cursorId:p.cursorId,shuffleRemaining:p.shuffleRemaining,shuffleHistory:p.shuffleHistory}:selectPlaylistEntry(p,entry.id)),updated={...p,...state};
@@ -247,7 +253,25 @@ export default function App() {
   const nextEpisode=()=>moveEpisode(1),previousEpisode=()=>moveEpisode(-1);
   const choosePlayable=(source:Playable)=>{stopCheck();manualHost.current=source.host;autoNext.current=false;requestedPlayback.current=null;setSourcePicker(false);setPlayer({item:detail!,episode,source,position:player?playerPosition.current:undefined});};
   const openSourcePicker=()=>{stopCheck();setSourcePicker(true);};
-  const closePlayerView=()=>{flushPlaylistPosition();playlistRun.current++;setPlaylistContext(null);if(player?.source)setResumePlayer({...player,position:playerPosition.current});autoNext.current=false;requestedPlayback.current=null;checkRequest.current++;if(checkId)void api('/checks/'+checkId+'/cancel',{}).catch(()=>{});if(player?.localURL)URL.revokeObjectURL(player.localURL);setPlayer(null);setPlayerDetailsOpen(false);setPlayerFullscreen(false);setSourcePicker(false);setSaveSource(null);setCheckBusy(false);void load();};
+  const closePlayerView=()=>{
+    const wasPlaylist=!!playlistRef.current;
+    flushPlaylistPosition();
+    playlistRun.current++;
+    setPlaylistContext(null);
+    if(player?.source)setResumePlayer({...player,position:playerPosition.current});
+    autoNext.current=false;
+    requestedPlayback.current=null;
+    checkRequest.current++;
+    if(checkId)void api('/checks/'+checkId+'/cancel',{}).catch(()=>{});
+    if(player?.localURL)URL.revokeObjectURL(player.localURL);
+    if(wasPlaylist){
+      activeSelection.current={itemId:'',episodeURL:''};
+      setDetail(null);
+      setEpisode(undefined);
+    }
+    setPlayer(null);setPlayerDetailsOpen(false);setPlayerFullscreen(false);setSourcePicker(false);setSaveSource(null);setCheckBusy(false);
+    void load();
+  };
   const resumable=(player?.item.id===detail?.id?player:resumePlayer?.item.id===detail?.id?resumePlayer:null);
   const canResume=!!resumable&&!!detail&&(resumable.episode?.url||'')===(episode?.url||'');
   const resumeViewing=()=>{if(!canResume||!resumable)return;setPlayerDetailsOpen(false);if(!player)setPlayer({...resumable,position:resumable.position??0});setResumeRequest(value=>value+1);};

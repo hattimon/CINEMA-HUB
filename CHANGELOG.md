@@ -1,5 +1,10 @@
 # Historia wydań
 
+## Kontener 1.3.20 – gotowe playlisty Stargate
+
+- Gotowe chronologie Stargate przygotowują pełne powiązania do Filmana i uruchamiają odtwarzanie jednym kliknięciem.
+- Otwarcie wcześniejszej playlisty uzupełnia brakujące powiązania i zapisuje dokładne odnośniki do odcinków z zachowaniem postępu. [Opis wydania](docs/RELEASE-1.3.20.md)
+
 ## Kontener 1.3.19 – playlisty i logowanie do Filmana
 
 - Prywatne playlisty filmów i odcinków z zapisem postępu, importem JSON i CSV oraz dwiema chronologiami Stargate.

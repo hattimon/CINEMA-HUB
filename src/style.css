@@ -88,5 +88,16 @@ dialog.modal.source-drawer::backdrop{background:transparent;backdrop-filter:none
 .player-actions .playlist-mode-option{width:auto;font-size:11px;display:flex;align-items:center;gap:6px;flex-shrink:0;white-space:nowrap}
 .player-actions .playlist-mode-option select{width:93px;min-width:93px;height:34px;min-height:34px;padding:4px 8px;font-size:12px;background:var(--surface,#151b28);color:inherit;border:1px solid var(--border,#64708d);border-radius:6px;cursor:pointer}
 .player-actions .playlist-mode-option select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.playlist-toolbar,.playlist-presets,.playlist-actions,.playlist-modes,.playlist-entry-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.playlist-toolbar{align-items:end;margin-block:16px}.playlist-toolbar label{flex:1;min-width:min(100%,16rem)}
+.playlist-presets{margin-block:16px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.playlist-presets strong{margin-inline-end:8px}.playlist-status{color:var(--muted);margin-block:12px}
+.playlist-columns{display:grid;grid-template-columns:minmax(12rem,18rem) minmax(0,1fr);align-items:start;gap:18px}
+.playlist-list{display:grid;gap:8px}.playlist-list-item{display:grid;gap:4px;padding:10px 12px;text-align:start;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:inherit}.playlist-list-item.active{border-color:var(--accent)}
+.playlist-list-item small,.playlist-entry-label small{color:var(--muted)}.playlist-editor{min-width:0}
+.playlist-media-search,.playlist-actions{margin-block:12px}.playlist-media-search label+label{margin-top:8px}.playlist-entry-label{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}
+.playlist-entries{list-style:none;display:grid;gap:6px;padding:0;margin:12px 0}.playlist-entries>li{display:grid;grid-template-columns:3ch minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:8px}
+.playlist-position{font-variant-numeric:tabular-nums;color:var(--muted)}
+@media(max-width:840px){.playlist-columns{grid-template-columns:1fr}.playlist-entry-actions{grid-column:2}.playlist-entries>li{grid-template-columns:3ch minmax(0,1fr)}}
 .voice-language-button{color:var(--muted)}.voice-search-content label{margin-bottom:14px}.voice-search-content input,.voice-search-content select{width:100%}
 @media(max-width:540px){.topbar .local-open{font-size:0;gap:0;padding:8px;flex-shrink:0}.topbar .local-open svg{width:20px;height:20px}.topbar .search-box{flex:1;width:auto}}

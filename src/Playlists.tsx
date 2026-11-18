@@ -2,7 +2,7 @@ import { useEffect,useRef,useState } from 'react';
 import { Plus,Play,Trash2,Copy,Download,Upload,ArrowUp,ArrowDown,Search,RefreshCw,Save,Shuffle,Repeat,ListOrdered,Link2 } from 'lucide-react';
 import { api } from './api';
 import type { Item,Episode } from './types';
-import type { Playlist,PlaylistSummary,PlaylistEntry,PlaylistMode } from './playlist';
+import type { Playlist,PlaylistSummary,PlaylistEntry,PlaylistMode,StargatePreparation } from './playlist';
 
 type Props={onPlay:(playlist:Playlist,entry:PlaylistEntry,restart?:boolean)=>void;onMessage:(message:string)=>void};
 const modes:{id:PlaylistMode;label:string;icon:typeof Play}[]=[
@@ -25,31 +25,86 @@ export default function Playlists({onPlay,onMessage}:Props){
   const [newName,setNewName]=useState(''),[busy,setBusy]=useState(false),[search,setSearch]=useState(''),[found,setFound]=useState<Item[]>([]);
   const [insertAt,setInsertAt]=useState('end');
   const [candidate,setCandidate]=useState<Item|null>(null),[target,setTarget]=useState<PlaylistEntry|null>(null),[drag,setDrag]=useState<string|null>(null);
+  const [preparing,setPreparing]=useState(false),[preparationNotice,setPreparationNotice]=useState('');
   const file=useRef<HTMLInputElement>(null);
+  const mounted=useRef(false),operation=useRef(false),preparation=useRef<AbortController|null>(null);
+  const loadList=async()=>{const summaries=await api<PlaylistSummary[]>('/playlists');setList(summaries);return summaries;};
   const refresh=async(selected=active?.id)=>{
-    const summaries=await api<PlaylistSummary[]>('/playlists');setList(summaries);
+    const summaries=await loadList();
     if(selected){const chosen=summaries.find(p=>p.id===selected);setActive(chosen?await api<Playlist>('/playlists/'+selected):null);}
   };
-  useEffect(()=>{void refresh(undefined).catch(e=>onMessage(e.message));},[]);
+  useEffect(()=>{
+    mounted.current=true;
+    void loadList().catch(e=>onMessage(e.message));
+    return()=>{mounted.current=false;preparation.current?.abort();};
+  },[]);
   const run=async(work:()=>Promise<void>)=>{
+    if(operation.current)return;
+    operation.current=true;
     setBusy(true);
-    try{await work();}catch(e){onMessage((e as Error).message);if((e as {status?:number}).status===409)await refresh().catch(()=>{});}
-    finally{setBusy(false);}
+    try{await work();}catch(e){
+      if(!mounted.current)return;
+      onMessage((e as Error).message);
+      if((e as {status?:number}).status===409)await refresh().catch(()=>{});
+    }finally{operation.current=false;setBusy(false);}
   };
   const create=()=>void run(async()=>{const name=newName.trim();if(!name)return;
     const doc=await api<Playlist>('/playlists',{name});setNewName('');await refresh(doc.id);
   });
-  const preset=(path:string)=>void run(async()=>{
-    const response=await fetch(path,{credentials:'same-origin'});if(!response.ok)throw Error('Nie znaleziono szablonu Stargate.');
-    const doc=await api<Playlist>('/playlists/import',{content:await response.text(),format:'json'});
-    await refresh(doc.id);
-    onMessage('Zaimportowano '+doc.entries.length+' pozycji. Nierozpoznane tytuły możesz przypisać w edytorze.');
+  const prepare=async(path:string)=>{
+    if(!mounted.current)return;
+    const controller=new AbortController();
+    preparation.current=controller;
+    setPreparing(true);setPreparationNotice('');
+    try{
+      const result=await api<StargatePreparation>(path,{},undefined,{signal:controller.signal,timeoutMs:120000});
+      if(controller.signal.aborted)return;
+      setActive(result.playlist);
+      setPreparationNotice(result.message??'');
+      return result.playlist;
+    }finally{
+      if(preparation.current===controller)preparation.current=null;
+      if(!controller.signal.aborted)setPreparing(false);
+    }
+  };
+  const prepareIfNeeded=(doc:Playlist)=>doc.entries.some(entry=>entry.needsStargateLink)
+    ?prepare('/playlists/'+doc.id+'/resolve-stargate')
+    :Promise.resolve(doc);
+  const open=(id:string)=>void run(async()=>{
+    setPreparationNotice('');setTarget(null);setCandidate(null);
+    const doc=await api<Playlist>('/playlists/'+id);
+    if(!mounted.current)return;
+    setActive(doc);
+    await prepareIfNeeded(doc);
+  });
+  const playPrepared=(doc:Playlist,entry?:PlaylistEntry,restart=false)=>{
+    if(!entry||!mounted.current)return;
+    if(entry.needsStargateLink){
+      onMessage('Filman nie udostępnił pozycji „'+entry.label+'”. Sprawdź komunikat przy playliście.');
+      return;
+    }
+    onPlay(doc,entry,restart);
+  };
+  const play=(doc:Playlist,entry?:PlaylistEntry,restart=false)=>void run(async()=>{
+    if(!entry)return;
+    const prepared=await prepareIfNeeded(doc);
+    if(prepared)playPrepared(prepared,prepared.entries.find(current=>current.id===entry.id),restart);
+  });
+  const preset=(name:'full'|'season8')=>void run(async()=>{
+    setTarget(null);setCandidate(null);
+    const doc=await prepare('/playlists/presets/'+name);
+    if(!doc)return;
+    void loadList().catch(e=>onMessage(e.message));
+    const entry=doc.entries.find(entry=>entry.id===doc.cursorId)??doc.entries[0];
+    playPrepared(doc,entry);
   });
   const importFile=(source:File)=>void run(async()=>{
     const format=source.name.toLowerCase().endsWith('.csv')?'csv':'json';
     const doc=await api<Playlist>('/playlists/import',{content:await source.text(),format});
-    await refresh(doc.id);
-    onMessage('Zaimportowano '+doc.entries.length+' pozycji. Do powiązania z katalogiem: '+doc.entries.filter(e=>!e.media).length+'.');
+    setPreparationNotice('');
+    setActive(doc);
+    await Promise.all([loadList(),prepareIfNeeded(doc)]);
+    onMessage('Zaimportowano '+doc.entries.length+' pozycji.');
   });
   const update=(patch:Record<string,unknown>)=>void run(async()=>{if(!active)return;const doc=await api<Playlist>('/playlists/'+active.id,{...patch,revision:active.revision},'PATCH');setActive(doc);await refresh(doc.id);});
   const remove=()=>void run(async()=>{if(!active||!window.confirm('Usunąć playlistę „'+active.name+'”?'))return;await api('/playlists/'+active.id,{},'DELETE');setActive(null);await refresh(undefined);});
@@ -86,7 +141,8 @@ export default function Playlists({onPlay,onMessage}:Props){
     return()=>{live=false;clearTimeout(timer);};
   },[search]);
   const download=(format:'json'|'csv')=>{if(!active)return;const a=document.createElement('a');a.href='/api/playlists/'+active.id+'/export?format='+format;a.download='cinema-playlist-'+active.id+'.'+format;document.body.append(a);a.click();a.remove();};
-  const linked=active?.entries.filter(e=>!!e.media).length||0;
+  const linked=active?.entries.filter(e=>!!e.media&&!e.needsStargateLink).length||0;
+  const missingStargate=active?.entries.filter(e=>e.needsStargateLink).length||0;
   return <section className="playlists-page">
     <div className="page-title"><div><h1>Playlisty</h1><p>Filmy i pojedyncze odcinki z różnych seriali w wybranej przez Ciebie kolejności.</p></div>
       <button className="button secondary" onClick={()=>file.current?.click()}><Upload size={17}/>Import JSON / CSV</button>
@@ -96,13 +152,14 @@ export default function Playlists({onPlay,onMessage}:Props){
       <label>Nazwa nowej playlisty<input value={newName} maxLength={120} placeholder="Np. Moja kolejność oglądania" onChange={e=>setNewName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')create();}}/></label>
       <button className="button primary" disabled={busy||!newName.trim()} onClick={create}><Plus size={17}/>Utwórz</button>
     </div>
-    <div className="playlist-presets"><strong>Gotowe chronologie Stargate</strong>
-      <button className="button secondary" disabled={busy} onClick={()=>preset('/playlists/stargate_chronologia_cinema_hub.json')}>SG-1 + Atlantis + filmy (317)</button>
-      <button className="button secondary" disabled={busy} onClick={()=>preset('/playlists/stargate_od_s08_cinema_hub.json')}>Od SG-1 S08 (162)</button>
+    <div className="playlist-presets"><strong>Gotowe chronologie Stargate z Filmana</strong>
+      <button className="button secondary" disabled={busy} onClick={()=>preset('full')}><Play size={16}/>Odtwórz SG-1 + Atlantis + filmy (317)</button>
+      <button className="button secondary" disabled={busy} onClick={()=>preset('season8')}><Play size={16}/>Odtwórz od SG-1 S08 (162)</button>
     </div>
+    {preparing?<p className="playlist-status" role="status">Dopasowuję filmy i odcinki w Filmanie…</p>:null}
     <div className="playlist-columns">
       <aside className="playlist-list" aria-label="Twoje playlisty">
-        {list.map(p=><button key={p.id} className={'playlist-list-item '+(active?.id===p.id?'active':'')} onClick={()=>void run(async()=>setActive(await api<Playlist>('/playlists/'+p.id)))}><strong>{p.name}</strong><small>{p.itemCount} pozycji · {p.completedCount}/{p.itemCount} obejrzanych · {p.mode==='once'?'Po kolei':p.mode==='repeat'?'W pętli':'Losowo'}</small>{p.itemCount>0&&p.completedCount===p.itemCount?<span className="playlist-done">✓ Ukończono</span>:p.cursorId?<span className="playlist-resume">● W trakcie</span>:null}</button>)}
+        {list.map(p=><button key={p.id} className={'playlist-list-item '+(active?.id===p.id?'active':'')} disabled={busy} onClick={()=>open(p.id)}><strong>{p.name}</strong><small>{p.itemCount} pozycji · {p.completedCount}/{p.itemCount} obejrzanych · {p.mode==='once'?'Po kolei':p.mode==='repeat'?'W pętli':'Losowo'}</small>{p.itemCount>0&&p.completedCount===p.itemCount?<span className="playlist-done">✓ Ukończono</span>:p.cursorId?<span className="playlist-resume">● W trakcie</span>:null}</button>)}
         {!list.length?<p>Nie masz jeszcze playlist. Możesz utworzyć własną lub zaimportować Stargate.</p>:null}
       </aside>
       {active?<div className="playlist-editor">
@@ -122,11 +179,17 @@ export default function Playlists({onPlay,onMessage}:Props){
           {candidate?<div><p>Wybierz konkretny odcinek: {candidate.title}</p><div className="playlist-episode-picker">{candidate.episodes?.map(ep=><button className="button secondary" key={ep.url} onClick={()=>add(candidate,ep)}>S{String(ep.season).padStart(2,'0')}E{String(ep.number).padStart(2,'0')} · {ep.title}</button>)}</div><button className="button ghost" onClick={()=>setCandidate(null)}>Zamknij wybór</button></div>:null}
           {found.length?<div className="playlist-search-results">{found.map(item=><button className="button secondary" key={item.id} disabled={busy} onClick={()=>pick(item)}><Plus size={16}/>{item.title} · {item.sourceName}</button>)}</div>:null}
         </div>
-        <div className="playlist-actions"><button className="button primary" disabled={!active.entries.length||busy} onClick={()=>{const entry=active.entries.find(e=>e.id===active.cursorId)||active.entries[0];onPlay(active,entry);}}><Play size={16}/>{active.cursorId?'Kontynuuj playlistę':'Odtwórz playlistę'}</button><button className="button secondary" disabled={!active.entries.length} onClick={()=>onPlay(active,active.entries[0],true)}>Od początku</button><button className="button secondary" onClick={()=>void refresh(active.id)}><RefreshCw size={16}/>Odśwież</button></div>
-        {linked<active.entries.length?<p className="source-error" role="status">Niepowiązane: {active.entries.length-linked} z {active.entries.length} pozycji. Użyj przycisku powiązania obok wybranego odcinka. Import zachowuje oryginalne opisy i kolejność.</p>:null}
+        <div className="playlist-actions">
+          <button className="button primary" disabled={!active.entries.length||busy} onClick={()=>play(active,active.entries.find(e=>e.id===active.cursorId)??active.entries[0])}><Play size={16}/>{active.cursorId?'Kontynuuj playlistę':'Odtwórz playlistę'}</button>
+          <button className="button secondary" disabled={!active.entries.length||busy} onClick={()=>play(active,active.entries[0],true)}>Od początku</button>
+          {missingStargate>0?<button className="button secondary" disabled={busy} onClick={()=>void run(async()=>{await prepareIfNeeded(active);})}><Link2 size={16}/>Powiąż z Filmanem</button>:null}
+          <button className="button secondary" disabled={busy} onClick={()=>open(active.id)}><RefreshCw size={16}/>Odśwież</button>
+        </div>
+        {missingStargate>0&&!preparing?<p className="source-error" role="status">{preparationNotice||'Powiąż pozostałe pozycje automatycznie przez Filman.'} Gotowe: {linked} z {active.entries.length}.</p>:null}
+        {active.entries.length-linked>missingStargate?<p className="source-error">Pozostałe pozycje bez źródła możesz powiązać przyciskiem obok tytułu.</p>:null}
         <ol className="playlist-entries">{active.entries.map((entry,index)=><li key={entry.id} draggable onDragStart={()=>setDrag(entry.id)} onDragEnd={()=>setDrag(null)} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(!drag||drag===entry.id)return;const ids=active.entries.map(e=>e.id),from=ids.indexOf(drag);if(from===-1)return;ids.splice(from,1);ids.splice(index,0,drag);reorder(ids);setDrag(null);}}>
-          <span className="playlist-position">{index+1}</span><div className="playlist-entry-label"><strong>{display(entry)}</strong><small>{entry.completed?'✓ Ukończono · ':''}{entry.media?'Powiązano z katalogiem':'Brak powiązania — wybierz odpowiedni tytuł'}{entry.id===active.cursorId?' · Ostatnio odtwarzane':''}{entry.playbackPosition>0&&!entry.completed?' · Wznowienie od '+Math.floor(entry.playbackPosition/60)+' min':''}</small></div>
-          <div className="playlist-entry-actions"><button className="icon-button" title="Odtwórz od tej pozycji" disabled={!entry.media} onClick={()=>onPlay(active,entry)}><Play size={17}/></button><button className="icon-button" title="Powiąż z katalogiem" onClick={()=>{setTarget(entry);setCandidate(null);document.querySelector('.playlist-media-search')?.scrollIntoView({behavior:'smooth'});}}><Link2 size={17}/></button>
+          <span className="playlist-position">{index+1}</span><div className="playlist-entry-label"><strong>{display(entry)}</strong><small>{entry.completed?'✓ Ukończono · ':''}{entry.needsStargateLink?'Do powiązania z Filmanem':entry.media?.sourceName||(entry.media?'Powiązano z katalogiem':'Brak źródła')}{entry.id===active.cursorId?' · Ostatnio odtwarzane':''}{entry.playbackPosition>0&&!entry.completed?' · Wznowienie od '+Math.floor(entry.playbackPosition/60)+' min':''}</small></div>
+          <div className="playlist-entry-actions"><button className="icon-button" title="Odtwórz od tej pozycji" disabled={busy||!entry.media&&!entry.needsStargateLink} onClick={()=>play(active,entry)}><Play size={17}/></button><button className="icon-button" title="Powiąż z katalogiem" onClick={()=>{setTarget(entry);setCandidate(null);document.querySelector('.playlist-media-search')?.scrollIntoView({behavior:'smooth'});}}><Link2 size={17}/></button>
             <button className="icon-button" aria-label="Przesuń w górę" disabled={index===0||busy} onClick={()=>move(entry,index-1)}><ArrowUp size={17}/></button><button className="icon-button" aria-label="Przesuń w dół" disabled={index===active.entries.length-1||busy} onClick={()=>move(entry,index+1)}><ArrowDown size={17}/></button><button className="icon-button" title="Przejdź do pozycji" onClick={()=>{const value=Number(window.prompt('Nowy numer pozycji (1–'+active.entries.length+')',String(index+1)));if(Number.isInteger(value))move(entry,value-1);}}>#</button><button className="icon-button" title="Usuń z playlisty" disabled={busy} onClick={()=>removeEntry(entry)}><Trash2 size={17}/></button></div>
         </li>)}</ol>
       </div>:<div className="playlist-editor"><p>Wybierz playlistę z lewej strony.</p></div>}

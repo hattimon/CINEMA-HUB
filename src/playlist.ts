@@ -3,7 +3,8 @@ export type PlaylistEntry={
   id:string;position:number;itemId:string|null;episodeUrl:string|null;
   season:number|null;episode:number|null;label:string;completed:boolean;playbackPosition:number;
   metadata:Record<string,unknown>;
-  media:{id:string;title:string;kind:string;sourceId:string;poster?:string}|null;
+  media:{id:string;title:string;kind:string;sourceId:string;sourceName?:string;poster?:string}|null;
+  needsStargateLink?:boolean;
 };
 export type Playlist={
   id:string;name:string;description:string;mode:PlaylistMode;revision:number;
@@ -11,6 +12,7 @@ export type Playlist={
   itemCount:number;completedCount:number;created:number;updated:number;entries:PlaylistEntry[];
 };
 export type PlaylistSummary=Omit<Playlist,'entries'>;
+export type StargatePreparation={playlist:Playlist;message?:string};
 export type QueueState=Pick<Playlist,'cursorId'|'shuffleRemaining'|'shuffleHistory'>;
 const randomize=(ids:string[])=>{
   const copy=[...ids];

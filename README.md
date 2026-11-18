@@ -1,16 +1,16 @@
 <p align="center"><img src="docs/assets/banner.svg" alt="Cinema Hub — Twoje kino, Twoje źródła" width="100%"></p>
 
 <p align="center">
-<img alt="Serwer 1.3.19" src="https://img.shields.io/badge/serwer-1.3.19-a28aff">
+<img alt="Serwer 1.3.20" src="https://img.shields.io/badge/serwer-1.3.20-a28aff">
 <img alt="Android TV 1.3.11" src="https://img.shields.io/badge/Android_TV-1.3.11-3ddc84">
 <img alt="Docker amd64 i arm64" src="https://img.shields.io/badge/Docker-amd64_%7C_arm64-2496ed">
 </p>
 
 # Cinema Hub
 
-**Playlisty:** prywatne listy filmów i odcinków, kolejność własna lub losowa, automatyczne przechodzenie do następnej pozycji, postęp i import Stargate (317 lub 162 pozycji). [Instrukcja playlist i Stargate](docs/PLAYLISTS.md).
+**Playlisty:** prywatne listy filmów i odcinków z postępem i automatycznym przechodzeniem do następnej pozycji. Gotowe chronologie Stargate (317 lub 162 pozycje) dopasowują źródła z Filmana i startują jednym kliknięciem. [Instrukcja playlist i Stargate](docs/PLAYLISTS.md).
 
-**Filman.cc:** Cinema Hub zapisuje potwierdzoną sesję i zaszyfrowane dane ostatniego logowania. Sam próbuje obsłużyć proste pole weryfikacji. Przycisk **Wyloguj / Zmień konto** pozwala zalogować się innym kontem. [Opis wydania 1.3.19](docs/RELEASE-1.3.19.md).
+**Filman.cc:** Cinema Hub zapisuje potwierdzoną sesję i zaszyfrowane dane ostatniego logowania. Sam próbuje obsłużyć proste pole weryfikacji. Przycisk **Wyloguj / Zmień konto** pozwala zalogować się innym kontem. [Zapis sesji Filmana](docs/RELEASE-1.3.19.md).
 
 **Serwer 1.3.15: dźwięk w przeglądarce.** Menu odtwarzacza udostępnia 250%, 300%, AUTO oraz Normalizer z wyborem poziomu RMS w dBFS. AUTO pozostawia zwykłe nagrania na 100%, wzmacnia ciche i ścisza za głośne. Normalizer wyrównuje dźwięk do wybranego poziomu. Wybór zapisuje się osobno dla każdego konta i działa od kolejnego filmu. [Opis i obsługa](docs/RELEASE-1.3.15.md).
 
@@ -22,7 +22,7 @@
 
 Każde konto ma własne logowania do źródeł, ustawienia, ulubione, historię oglądania i kolejkę ręcznego zapisu. Repozytorium zawiera kod aplikacji i gotowy klient APK, bez filmów oraz danych użytkowników.
 
-<p align="center"><a href="https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.19"><strong>Pobierz serwer 1.3.19</strong></a> · <a href="docs/INSTALL.md">Instalacja Docker</a> · <a href="docs/ANDROID-TV.md">Android TV i pilot</a> · <a href="docs/SOURCES.md">Konfiguracja źródeł</a></p>
+<p align="center"><a href="https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.20"><strong>Pobierz serwer 1.3.20</strong></a> · <a href="docs/INSTALL.md">Instalacja Docker</a> · <a href="docs/ANDROID-TV.md">Android TV i pilot</a> · <a href="docs/SOURCES.md">Konfiguracja źródeł</a></p>
 
 ## Instalacja jednym kliknięciem przez DCC
 
@@ -54,11 +54,11 @@ Wybierz host Docker na Windows lub Linux, otwórz sklep aplikacji i kliknij **SK
 | Raspberry Pi | Docker na systemie 64-bit ARM64 + Cinema Hub | `http://IP_RASPBERRY_PI:9999/` |
 | Android TV / Google TV | [CinemaHub-AndroidTV-v1.3.11.apk](https://github.com/hattimon/CINEMA-HUB/releases/tag/android-v1.3.11) | Wpisujesz IP i port wybranego serwera |
 
-APK **1.3.11** współpracuje z panelem serwera **1.3.19**. Pobiera aktualny panel z serwera, więc nowe funkcje biblioteki i źródeł nie wymagają każdorazowej instalacji APK. W tym wydaniu Android TV ma boczny panel efektów obrazu i dźwięku. Aplikacja sprawdza nowe wydanie przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
+APK **1.3.11** współpracuje z panelem serwera **1.3.20**. Pobiera aktualny panel z serwera, więc nowe funkcje biblioteki i źródeł nie wymagają każdorazowej instalacji APK. W tym wydaniu Android TV ma boczny panel efektów obrazu i dźwięku. Aplikacja sprawdza nowe wydanie przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
 
 ## Szybki start
 
-Pobierz paczkę `CinemaHub-Server-v1.3.19.zip` z [wydania serwera 1.3.19](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.19) i rozpakuj ją albo sklonuj repozytorium:
+Pobierz paczkę `CinemaHub-Server-v1.3.20.zip` z [wydania serwera 1.3.20](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.20) i rozpakuj ją albo sklonuj repozytorium:
 
 ```sh
 git clone https://github.com/hattimon/CINEMA-HUB.git
@@ -77,7 +77,7 @@ cd CINEMA-HUB
 sh install-raspberry-pi.sh
 ```
 
-Instalatory tworzą lokalny plik `.env` z losowym hasłem startowego konta **admin**, jeśli plik jeszcze nie istnieje. Hasło odczytasz z pola `INITIAL_ADMIN_PASSWORD` w swoim `.env`. Konto startowe jest tworzone tylko dla nowej bazy. Gotowy obraz pochodzi z `ghcr.io/hattimon/cinema-hub:1.3.19`; możesz też zbudować go lokalnie: Windows `-Build`, Pi `--build`.
+Instalatory tworzą lokalny plik `.env` z losowym hasłem startowego konta **admin**, jeśli plik jeszcze nie istnieje. Hasło odczytasz z pola `INITIAL_ADMIN_PASSWORD` w swoim `.env`. Konto startowe jest tworzone tylko dla nowej bazy. Gotowy obraz pochodzi z `ghcr.io/hattimon/cinema-hub:1.3.20`; możesz też zbudować go lokalnie: Windows `-Build`, Pi `--build`.
 
 Pełna instrukcja, porty, aktualizacje i kopie danych: **[Instalacja i utrzymanie](docs/INSTALL.md)**.
 

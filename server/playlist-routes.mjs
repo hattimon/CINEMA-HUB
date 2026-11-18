@@ -1,5 +1,7 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { db, uid, now, getItem } from './store.mjs';
+import { needsStargateLink, resolveStargateEntries, stargateEntryKey } from './stargate-playlists.mjs';
 
 let playlistSchemaReady = false;
 
@@ -53,13 +55,25 @@ function playlist(id,userId){
 }
 function entries(id,userId){
   playlist(id,userId);
+  const items = new Map();
   return db.prepare('SELECT * FROM playlist_entries WHERE playlist_id=? ORDER BY position,id').all(id).map(row=>{
-    let media=null;
-    if(row.media_item_id)try{
-      const item=getItem(row.media_item_id,userId);
-      media={id:item.id,title:item.title,kind:item.kind,sourceId:item.sourceId,poster:item.poster};
-    }catch{/* The source may have been removed. */}
-    return {id:row.id,position:row.position,itemId:row.media_item_id||null,episodeUrl:row.episode_url,season:row.season,episode:row.episode,label:row.label,metadata:JSON.parse(row.metadata),completed:!!row.completed,playbackPosition:row.playback_position,media};
+    if (row.media_item_id && !items.has(row.media_item_id)) {
+      let record = null;
+      try {
+        const item = getItem(row.media_item_id,userId);
+        record = {
+          media: { id:item.id, title:item.title, kind:item.kind, sourceId:item.sourceId, sourceName:item.sourceName, poster:item.poster },
+          episodes: new Set(item.episodes?.map(episode => episode.url)),
+        };
+      } catch { /* The source may have been removed. */ }
+      items.set(row.media_item_id, record);
+    }
+    const record = items.get(row.media_item_id);
+    const entry = {id:row.id,position:row.position,itemId:row.media_item_id||null,episodeUrl:row.episode_url,season:row.season,episode:row.episode,label:row.label,metadata:JSON.parse(row.metadata),completed:!!row.completed,playbackPosition:row.playback_position,media:record?.media ?? null};
+    if (stargateEntryKey(entry)) {
+      entry.needsStargateLink = needsStargateLink(entry) || (entry.media.kind === 'series' && !record.episodes.has(entry.episodeUrl));
+    }
+    return entry;
   });
 }
 const brief=row=>{
@@ -134,16 +148,81 @@ function mapImported(e,userId,catalog){
   if(e.itemId)try{getItem(e.itemId,userId);return e;}catch{
     e={...e,metadata:{...e.metadata,original_item_id:e.itemId},itemId:null};
   }
-  const code=String(e.metadata?.series_code||'');
+  // Stargate entries are matched to exact episode URLs in one batch.
+  if(stargateEntryKey(e))return e;
   const match=catalog.filter(item=>{
     const title=(item.title||'').toLowerCase().replace(/[^a-z0-9]/g,'');
-    if(code==='SG1')return /stargatesg1/.test(title);
-    if(code==='SGA')return /stargateatlantis/.test(title);
-    if(code==='FILM')return title===String(e.metadata.title||'').toLowerCase().replace(/[^a-z0-9]/g,'');
     return title===String(e.metadata?.series||e.metadata?.title||e.label||'').toLowerCase().replace(/[^a-z0-9]/g,'');
   });
   return match.length===1?{...e,itemId:match[0].id}:e;
 }
+
+const presets = {
+  full: 'stargate_chronologia_cinema_hub.json',
+  season8: 'stargate_od_s08_cinema_hub.json',
+};
+const preparing = new Map();
+
+function openPreset(preset, userId) {
+  const path = new URL('../dist/playlists/'+presets[preset],import.meta.url);
+  const file = existsSync(path) ? path : new URL('../public/playlists/'+presets[preset],import.meta.url);
+  const imported = normalizedImport(readFileSync(file, 'utf8'), 'json');
+  const keys = imported.entries.map(stargateEntryKey);
+  return tx(() => {
+    const candidates = db.prepare(`
+      SELECT p.id FROM playlists p JOIN playlist_entries e ON e.playlist_id=p.id
+      WHERE p.user_id=? GROUP BY p.id
+      HAVING COUNT(*)=?
+      ORDER BY (p.cursor_id IS NOT NULL) DESC, SUM(e.completed) DESC, p.updated DESC, p.id
+    `).all(userId, keys.length);
+    for (const { id } of candidates) {
+      if (entries(id, userId).every((entry, index) => stargateEntryKey(entry) === keys[index])) return id;
+    }
+    const id = uid(), timestamp = now();
+    db.prepare('INSERT INTO playlists(id,user_id,name,description,mode,created,updated) VALUES(?,?,?,?,?,?,?)')
+      .run(id,userId,imported.name,imported.description,imported.mode,timestamp,timestamp);
+    imported.entries.forEach((entry, index) => insert(id, index, entry));
+    return id;
+  });
+}
+
+function prepareStargate(id, userId) {
+  const key = userId+':'+id;
+  const current = preparing.get(key);
+  if (current) return current;
+  async function prepare() {
+    const pending = entries(id, userId).filter(entry => entry.needsStargateLink);
+    if (!pending.length) return { playlist: full(playlist(id, userId), userId) };
+    const keys = new Map(pending.map(entry => [entry.id, stargateEntryKey(entry)]));
+    const { links, message } = await resolveStargateEntries(userId, pending);
+    if (links.size) tx(() => {
+      const validItem = db.prepare("SELECT 1 FROM items i JOIN sources s ON s.id=i.source_id WHERE i.id=? AND s.user_id=? AND s.enabled=1 AND s.type='filman'");
+      const update = db.prepare('UPDATE playlist_entries SET media_item_id=?,episode_url=? WHERE playlist_id=? AND id=?');
+      let changed = false;
+      for (const entry of entries(id, userId)) {
+        const link = links.get(entry.id);
+        // Recheck the individual entry after the portal lookup so edits to the
+        // playlist, its progress or a manually repaired link win.
+        if (!link || !entry.needsStargateLink || keys.get(entry.id) !== stargateEntryKey(entry)) continue;
+        if (!validItem.get(link.itemId, userId)) continue;
+        update.run(link.itemId, link.episodeUrl, id, entry.id);
+        changed = true;
+      }
+      if (changed) bump(id);
+    });
+    const prepared = full(playlist(id, userId), userId);
+    return {
+      playlist: prepared,
+      message: prepared.entries.some(entry => entry.needsStargateLink)
+        ? message ?? 'Część pozycji nadal wymaga powiązania. Spróbuj ponownie.'
+        : undefined,
+    };
+  }
+  const work = prepare().finally(() => preparing.delete(key));
+  preparing.set(key, work);
+  return work;
+}
+
 export function installPlaylistRoutes(app,auth){
   const route='/api/playlists';
   app.use(route,auth,(_req,_res,next)=>{
@@ -151,6 +230,14 @@ export function installPlaylistRoutes(app,auth){
     next();
   });
   app.get(route,(req,res)=>res.json(db.prepare('SELECT * FROM playlists WHERE user_id=? ORDER BY updated DESC').all(req.user.id).map(brief)));
+  app.post(route+'/presets/:preset',async(req,res)=>{
+    const preset = z.enum(['full','season8']).parse(req.params.preset);
+    const id = openPreset(preset, req.user.id);
+    res.json(await prepareStargate(id, req.user.id));
+  });
+  app.post(route+'/:id/resolve-stargate',async(req,res)=>{
+    res.json(await prepareStargate(req.params.id, req.user.id));
+  });
   app.post(route,(req,res)=>{
     const body=z.object({name:z.string().trim().min(1).max(120),description:z.string().max(2000).default(''),mode:mode.default('once')}).parse(req.body);
     const id=uid(),timestamp=now();

@@ -2,13 +2,12 @@
 
 ## Pierwsza playlista Stargate
 
-1. Zaloguj się do Cinema Hub i dodaj źródło z filmami oraz serialami do swojego katalogu.
+1. Zaloguj się do Cinema Hub i włącz źródło **Filman** w **Ustawienia → Źródła**.
 2. Otwórz **Playlisty** w bocznym menu.
-3. W sekcji **Gotowe chronologie Stargate** wybierz **SG-1 + Atlantis + filmy (317)** lub krótszą listę **Od SG-1 S08 (162)**. Możesz też zaimportować własny plik JSON albo CSV.
-4. Po imporcie sprawdź liczbę powiązanych pozycji. W przypadku brakującego tytułu kliknij ikonę łącza przy pozycji, wyszukaj właściwy serial lub film i w razie potrzeby wybierz dokładny sezon oraz odcinek.
-5. Kliknij **Odtwórz playlistę**. Program pamięta bieżącą pozycję i czas oglądania dla Twojego konta.
+3. W sekcji **Gotowe chronologie Stargate z Filmana** wybierz **Odtwórz SG-1 + Atlantis + filmy (317)** albo **Odtwórz od SG-1 S08 (162)**. Cinema Hub dopasuje filmy oraz dokładne sezony i odcinki, po czym włączy zwykły automatyczny wybór hostingu. Jeżeli lista już istnieje w tej kolejności, wznowi ją od zapisanego miejsca.
+4. Aby naprawić listę zapisaną w starszej wersji, otwórz ją w **Moich playlistach**. Cinema Hub automatycznie uzupełni jej powiązania. Jeżeli Filman wymaga zalogowania, użyj **Zaloguj / CAPTCHA** w ustawieniach źródła, a potem wybierz **Powiąż z Filmanem**.
 
-Pakiet Stargate zawiera **wyłącznie opisy i kolejność**: 214 odcinków SG-1, 100 Atlantis oraz trzy filmy. Nie zawiera plików wideo ani odnośników do pirackich strumieni. Cinema Hub korzysta z pozycji faktycznie dostępnych w Twoim katalogu. Bez powiązania danej pozycji nie rozpocznie jej odtwarzania.
+Pełna chronologia obejmuje 214 odcinków SG-1, 100 odcinków Atlantydy i trzy filmy. Cinema Hub pobiera odnośniki do pozycji z Filmana i wyszukuje hosting przy odtwarzaniu. Gdy portal nie udostępni pozycji, playlista podaje powód i pozwala ponowić próbę.
 
 ## Własne playlisty
 

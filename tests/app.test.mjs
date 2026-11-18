@@ -22,6 +22,7 @@ const table='<table id="links"><tbody><tr><td><a href="#" data-link-id="101"><im
 const movie=`<div id="single-info"><h1>Film próbny<span>ONLINE PL</span></h1><a href="/filmy/category:1/">Akcja</a><a href="/filmy/category:12/">Dramat</a><p>2025</p></div><div id="single-poster"><img class="main-poster" src="/poster.jpg">OCENA UŻYTKOWNIKÓW 4.77 /5 IMDB 8.3 /10</div><div id="item-content"><p>Pełny opis filmu</p></div>${table}`;
 let fixture,origin,base,admin,other,source,item,playback,filmBuffer,tsBuffer,portalSource,hostingClicks=0,movieVisits=0,viderCatalogVisits=0,viderPlayerClicks=0,playerPauseClicks=0;
 let backgroundPings=0,trackedHostingClicks=0;
+let stargateFixture;
 const cloudFiles=new Map();
 const hasTools=spawnSync('ffmpeg',['-version']).status===0&&spawnSync('ffprobe',['-version']).status===0;
 let slowFilmFirstRequest=true;
@@ -50,6 +51,18 @@ before(async()=>{
     if(url.pathname==='/vider-player-click'){viderPlayerClicks++;return res.end('ok');}
     if(url.pathname==='/folder/'||url.pathname==='/'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(`<div id="belt">Zalogowany jako: test</div><meta name="csrf-token" content="test-token">${filters}<ul id="item-list">${tile('/m/test','Film próbny')}${tile('/s/1/serial','Serial próbny')}</ul>`);}
     if(url.pathname==='/szukam'){req.resume();return res.end(`<ul>${tile('/m/test','Film próbny')}${tile('/s/1/serial','Serial próbny')}</ul>`);}
+    if(stargateFixture){
+      const page=stargateFixture.pages.get(url.pathname);
+      if(page){
+        stargateFixture.details.add(url.pathname);
+        return res.end(page);
+      }
+      if(url.pathname.startsWith('/e/stargate-fixture/'))return res.end(stargateFixture.playerPage);
+      if(url.pathname==='/search'&&url.searchParams.get('phrase')==='Stargate'){
+        stargateFixture.searches++;
+        return res.end(stargateFixture.searchPage);
+      }
+    }
     if(url.pathname==='/search')return res.end(`<div id="belt">Zalogowany jako: test</div><div id="item-list">${tile('/m/test','Film próbny')}${tile('/s/1/serial','Serial próbny')}</div>`);
     if(url.pathname==='/search-library/')return res.end('<a href="Stargate.mp4">Stargate 1994.mp4</a>');
     if(url.pathname==='/search/movies/Stargate/0')return res.end('<div id="LoadGeneralContent"><a href="/dir/+account">Kolekcja konta</a><ul id="search_files_result"><div>Proszę czekać, szukam...</div></ul><div id="search_pages_1"></div></div><script>setTimeout(()=>{document.querySelector("#search_files_result").innerHTML='+JSON.stringify('<li><a href="/vid/+sg1" title="Stargate SG-1 S01E01">Stargate SG-1 S01E01</a></li><li><a href="/vid/+movie" title="Stargate 1994">Stargate 1994</a></li>')+';document.querySelector("#search_pages_1").innerHTML='+JSON.stringify('<span data-href="/search/movies/Stargate/1">Następna</span>')+';},600);</script>');
@@ -723,6 +736,130 @@ test('Auto ignores background AJAX and tracker frames before the actual hosting 
     assert.equal(check.ready[0].host,link.host);assert.equal(media.playbackFor(check.ready[0].playbackId,owner.id).episode.url,episode.url);
   }finally{await request('/sources/'+portal.id,undefined,admin,'DELETE');}
 });
+
+test('Stargate repairs the saved playlist and automatically plays a film and both series from Filman',
+  {skip:!hasTools||!process.env.CHROMIUM_PATH,timeout:180000},async()=>{
+    const folder=existsSync(resolve('dist/index.html'))?'dist':'public';
+    const template=JSON.parse(readFileSync(resolve(folder,'playlists/stargate_chronologia_cinema_hub.json'),'utf8'));
+    const series=[
+      ['SG1','/s/1942/gwiezdne-wrota-stargate-sg-1','Gwiezdne wrota / Stargate SG-1',1997],
+      ['SGA','/s/1963/gwiezdne-wrota-atlantyda-stargate-atlantis','Gwiezdne wrota: Atlantyda / Stargate Atlantis',2004],
+    ];
+    const episodePath=entry=>'/e/stargate-fixture/'+entry.series_code+'/'+entry.episode_code;
+    const openingFilm='/m/zuCitIpV249kEcxnTg7S5K08h';
+    const movedFilm='/m/stargate-fixture-ark';
+    const detailPage=(title,year)=>movie.replace('Film próbny',title).replace('<p>2025</p>','<p>'+year+'</p>');
+    const playerScript='<style>#links a{display:block;width:180px;height:24px}</style>'
+      +'<script>document.querySelectorAll("[data-link-id]").forEach(link=>link.onclick=async event=>{event.preventDefault();'
+      +'const data=await(await fetch("/link/episode-token")).json();const player=document.createElement("a");'
+      +'player.href=atob(data.url);player.target="_blank";player.textContent="Przejdź do Odtwarzacza";document.body.append(player);});</script>';
+    const pages=new Map([
+      [openingFilm,detailPage('Gwiezdne Wrota / Stargate',1994)+playerScript],
+      [movedFilm,detailPage('Gwiezdne Wrota: Arka Prawdy / Stargate: The Ark of Truth',2008)+playerScript],
+      ['/m/VXsByK6OLotHg9Pizhnb2GmU4',detailPage('Gwiezdne wrota: Continuum / Stargate: Continuum',2008)+playerScript],
+    ]);
+    for(const [code,path,title,year] of series){
+      const episodes=template.items.filter(item=>item.series_code===code)
+        .map(item=>'<a href="'+episodePath(item)+'">['+item.episode_code+'] '+item.title+'</a>').join('');
+      pages.set(path,detailPage(title,year)+'<div class="episode-list">'+episodes+'</div>');
+    }
+    stargateFixture={
+      pages,details:new Set(),searches:0,playerPage:movie+playerScript,
+      searchPage:'<ul id="item-list">'+tile(movedFilm,'Gwiezdne Wrota: Arka Prawdy').replace('>2025<','>2008<')
+        +tile('/m/stargate-fixture-pilot','Gwiezdne wrota Dzieci Bogów / Stargate SG-1: Children of the Gods')+'</ul>',
+    };
+
+    let browser;
+    try {
+      const account=store.addUser('stargate-fixture','Stargate-test-092');
+      const login=await request('/auth/login',{username:account.username,password:'Stargate-test-092'},null);
+      assert.equal(login.status,200);
+      const cookie=login.response.headers.get('set-cookie').split(';')[0];
+      const sourceId=(await request('/sources',undefined,cookie)).value.find(source=>source.type==='filman').id;
+      const configured=await request('/sources/'+sourceId,{name:'Filman',type:'filman',url:origin+'/',enabled:true},cookie,'PUT');
+      assert.equal(configured.status,200);
+      const imported=await request('/playlists/import',{content:template,format:'json'},cookie);
+      assert.equal(imported.status,201);
+      const legacy=imported.value, first=legacy.entries[0];
+      // The previous release linked the parent series without exact episode URLs.
+      const atlantis=store.saveItem(sourceId,{url:origin+series[1][1],title:series[1][2],kind:'series',sourceName:'Filman'});
+      store.db.prepare("UPDATE playlist_entries SET media_item_id=? WHERE playlist_id=? AND json_extract(metadata,'$.series_code')='SGA'")
+        .run(atlantis.id,legacy.id);
+      await request('/playlists/'+legacy.id+'/playback',{cursorId:first.id},cookie,'PATCH');
+      await request('/playlists/'+legacy.id+'/entries/'+first.id+'/progress',{position:17},cookie,'PATCH');
+
+      const {chromium}=await import('playwright');
+      browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
+      const context=await browser.newContext({viewport:{width:1380,height:900}});
+      await context.addCookies([{name:'cinema_session',value:cookie.slice('cinema_session='.length),url:base,httpOnly:true,sameSite:'Strict'}]);
+      const page=await context.newPage(), autoChecks=[];
+      page.on('request', req=>{
+        if(req.method()==='POST'&&/\/api\/items\/[^/]+\/check$/.test(new URL(req.url()).pathname))autoChecks.push(req.postDataJSON());
+      });
+      await page.goto(base);
+      await page.getByRole('button',{name:'Playlisty',exact:true}).click();
+      await page.getByRole('complementary',{name:'Twoje playlisty'}).getByRole('button',{name:/chronologicznie/}).click();
+      await page.getByText(/317 powiązanych z katalogiem/).waitFor({timeout:90000});
+      assert.equal(stargateFixture.details.size,5);
+      assert.equal(stargateFixture.searches,1,'The moved film was found through the Filman search');
+      const repaired=(await request('/playlists/'+legacy.id,undefined,cookie)).value;
+      assert.equal(repaired.cursorId,first.id);
+      assert.equal(repaired.entries[0].playbackPosition,17);
+      assert.deepEqual(repaired.entries.map(item=>item.id),legacy.entries.map(item=>item.id));
+      for(let index=0;index<repaired.entries.length;index++){
+        const actual=repaired.entries[index], expected=template.items[index];
+        assert.equal(actual.needsStargateLink,false,expected.key);
+        assert.equal(actual.media.sourceId,sourceId,expected.key);
+        if(expected.type==='episode')assert.equal(actual.episodeUrl,origin+episodePath(expected),expected.key);
+      }
+
+      const shortResponse=await request('/playlists/presets/season8',{},cookie);
+      assert.equal(shortResponse.status,200,JSON.stringify(shortResponse.value));
+      const short=shortResponse.value.playlist;
+      assert.equal(short.entries.length,162);
+      assert.ok(short.entries.every(item=>item.media?.sourceId===sourceId&&!item.needsStargateLink));
+      assert.equal(stargateFixture.searches,1,'The second playlist reuses the resolved catalog');
+      assert.equal((await request('/playlists/'+legacy.id+'/resolve-stargate',{},'cinema_session=none')).status,401);
+
+      async function waitForPlayback(title, episode, position=0){
+        try {
+          await page.waitForFunction(({title,episode,position})=>{
+            const header=document.querySelector('.player-header');
+            const video=document.querySelector('.player-overlay video');
+            return header?.querySelector('h2')?.textContent===title
+              && header.textContent.includes(episode??'Działający hosting')
+              && header.textContent.includes(' · Lektor · ') && video?.duration>60
+              && !video.paused && video.currentTime>=position;
+          },{title,episode,position},{timeout:48000});
+        } catch (error) {
+          const player=await page.locator('.player-overlay').first().innerText({timeout:1000}).catch(()=>'(closed)');
+          throw new Error('Expected playback of '+title+' '+(episode??'')+'. Player: '+player,{cause:error});
+        }
+      }
+      const finishVideo=()=>page.locator('.player-overlay video').evaluate(video=>{video.currentTime=video.duration-0.35;});
+      await page.getByRole('button',{name:'Odtwórz SG-1 + Atlantis + filmy (317)',exact:true}).click();
+      await waitForPlayback('Gwiezdne Wrota / Stargate',null,16);
+      await finishVideo();
+      await waitForPlayback(series[0][2],'Sezon 1 · Odcinek 1');
+      await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();
+      const crossover=template.items.findIndex((item,index)=>item.series_code==='SG1'&&template.items[index+1]?.series_code==='SGA');
+      assert.ok(crossover>0);
+      const lastSG=template.items[crossover], nextAtlantis=template.items[crossover+1];
+      await page.getByTitle('Odtwórz od tej pozycji',{exact:true}).nth(crossover).click();
+      await waitForPlayback(series[0][2],'Sezon '+lastSG.season+' · Odcinek '+lastSG.episode);
+      await finishVideo();
+      await waitForPlayback(series[1][2],'Sezon '+nextAtlantis.season+' · Odcinek '+nextAtlantis.episode);
+      assert.deepEqual(autoChecks.map(check=>check.episode??null),[
+        null,origin+episodePath(template.items[1]),origin+episodePath(lastSG),origin+episodePath(nextAtlantis),
+      ]);
+      assert.ok(autoChecks.every(check=>check.auto===true&&!check.linkId&&check.preferredVersion==='Lektor'));
+      const all=(await request('/playlists',undefined,cookie)).value;
+      assert.deepEqual(new Set(all.map(entry=>entry.id)),new Set([legacy.id,short.id]),'Opening Stargate again does not import a duplicate');
+    } finally {
+      await browser?.close();
+      stargateFixture=undefined;
+    }
+  });
 
 test('HLS segments are proxied and manual download produces playable MP4',{skip:!hasTools},async()=>{
   const own=(await request('/auth/me')).value;const data=store.saveItem(source.id,{url:origin+'/stream.m3u8',title:'Strumień HLS',kind:'movie',sources:[{id:'hls',url:origin+'/stream.m3u8',host:'Fixture',version:'Lektor',quality:'180p'}]});
