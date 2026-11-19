@@ -91,7 +91,7 @@ export default function Playlists({onPlay,onMessage}:Props){
     const prepared=await prepareIfNeeded(doc);
     if(prepared)playPrepared(prepared,prepared.entries.find(current=>current.id===entry.id),restart);
   });
-  const preset=(name:'full'|'season8')=>void run(async()=>{
+  const preset=(name:'full'|'season8'|'avatar')=>void run(async()=>{
     setTarget(null);setCandidate(null);
     const doc=await prepare('/playlists/presets/'+name);
     if(!doc)return;
@@ -153,15 +153,16 @@ export default function Playlists({onPlay,onMessage}:Props){
       <label>Nazwa nowej playlisty<input value={newName} maxLength={120} placeholder="Np. Moja kolejność oglądania" onChange={e=>setNewName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')create();}}/></label>
       <button className="button primary" disabled={busy||!newName.trim()} onClick={create}><Plus size={17}/>Utwórz</button>
     </div>
-    <div className="playlist-presets"><strong>Gotowe chronologie Stargate z Filmana</strong>
+    <div className="playlist-presets"><strong>Gotowe playlisty z Filmana</strong>
       <button className="button secondary" disabled={busy} onClick={()=>preset('full')}><Play size={16}/>Odtwórz SG-1 + Atlantis + filmy</button>
       <button className="button secondary" disabled={busy} onClick={()=>preset('season8')}><Play size={16}/>Odtwórz od SG-1 S08</button>
+      <button className="button secondary" disabled={busy} onClick={()=>preset('avatar')}><Play size={16}/>Odtwórz Avatar — chronologicznie</button>
     </div>
     {preparing?<p className="playlist-status" role="status">Dopasowuję filmy i odcinki w Filmanie…</p>:null}
     <div className="playlist-columns">
       <aside className="playlist-list" aria-label="Twoje playlisty">
         {list.map(p=><button key={p.id} className={'playlist-list-item '+(active?.id===p.id?'active':'')} disabled={busy} onClick={()=>open(p.id)}><strong>{p.name}</strong><small>{p.itemCount} pozycji · {p.completedCount}/{p.itemCount} obejrzanych · {p.mode==='once'?'Po kolei':p.mode==='repeat'?'W pętli':'Losowo'}</small>{p.itemCount>0&&p.completedCount===p.itemCount?<span className="playlist-done">✓ Ukończono</span>:p.cursorId?<span className="playlist-resume">● W trakcie</span>:null}</button>)}
-        {!list.length?<p>Nie masz jeszcze playlist. Możesz utworzyć własną lub zaimportować Stargate.</p>:null}
+        {!list.length?<p>Nie masz jeszcze playlist. Możesz utworzyć własną lub wybrać gotową chronologię Stargate albo Avatar.</p>:null}
       </aside>
       {active?<div className="playlist-editor">
         <div className="section-heading"><div><h2>{active.name}</h2><p>{active.description||'Lista prywatna'} · {active.entries.length} pozycji · {active.entries.filter(e=>e.completed).length} ukończonych · {linked} powiązanych z katalogiem</p></div>

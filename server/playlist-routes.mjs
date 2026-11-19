@@ -198,9 +198,19 @@ function mapImported(e,userId,catalog){
   return match.length===1?{...e,itemId:match[0].id}:e;
 }
 
+function presetEntryKey(entry){
+  const stargate=stargateEntryKey(entry);
+  if(stargate)return 'stargate:'+stargate;
+  const title=entry.metadata?.series_title||entry.metadata?.title||entry.media?.title||entry.label;
+  const kind=entry.media?.kind||(entry.metadata?.type==='episode'?'series':entry.metadata?.type);
+  const normalized=String(title||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  return kind&&normalized?kind+':'+normalized:null;
+}
+
 const presets = {
   full: 'stargate_chronologia_cinema_hub.json',
   season8: 'stargate_od_s08_cinema_hub.json',
+  avatar: 'avatar_chronologia_cinema_hub.json',
 };
 const preparing = new Map();
 
@@ -208,7 +218,9 @@ function openPreset(preset, userId) {
   const path = new URL('../dist/playlists/'+presets[preset],import.meta.url);
   const file = existsSync(path) ? path : new URL('../public/playlists/'+presets[preset],import.meta.url);
   const imported = normalizedImport(readFileSync(file, 'utf8'), 'json');
-  const keys = imported.entries.map(stargateEntryKey);
+  const keys = imported.entries.map(presetEntryKey);
+  const catalog=db.prepare('SELECT i.id,i.value FROM items i JOIN sources s ON s.id=i.source_id WHERE s.user_id=?').all(userId).map(row=>({id:row.id,...JSON.parse(row.value)}));
+  const prepared=imported.entries.map(entry=>mapImported(entry,userId,catalog));
   return tx(() => {
     const candidates = db.prepare(`
       SELECT p.id FROM playlists p JOIN playlist_entries e ON e.playlist_id=p.id
@@ -217,12 +229,12 @@ function openPreset(preset, userId) {
       ORDER BY (p.cursor_id IS NOT NULL) DESC, SUM(e.completed) DESC, p.updated DESC, p.id
     `).all(userId, keys.length);
     for (const { id } of candidates) {
-      if (entries(id, userId).every((entry, index) => stargateEntryKey(entry) === keys[index])) return id;
+      if (entries(id, userId).every((entry, index) => keys[index]!==null&&presetEntryKey(entry)===keys[index])) return id;
     }
     const id = uid(), timestamp = now();
     db.prepare('INSERT INTO playlists(id,user_id,name,description,mode,created,updated) VALUES(?,?,?,?,?,?,?)')
       .run(id,userId,imported.name,imported.description,imported.mode,timestamp,timestamp);
-    imported.entries.forEach((entry, index) => insert(id, index, entry));
+    prepared.forEach((entry, index) => insert(id, index, entry));
     return id;
   });
 }
@@ -273,7 +285,7 @@ export function installPlaylistRoutes(app,auth){
   });
   app.get(route,(req,res)=>res.json(db.prepare('SELECT * FROM playlists WHERE user_id=? ORDER BY updated DESC').all(req.user.id).map(brief)));
   app.post(route+'/presets/:preset',async(req,res)=>{
-    const preset = z.enum(['full','season8']).parse(req.params.preset);
+    const preset = z.enum(['full','season8','avatar']).parse(req.params.preset);
     const id = openPreset(preset, req.user.id);
     res.json(await prepareStargate(id, req.user.id));
   });

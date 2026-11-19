@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "id": "avatar-chronologia-cinema-hub",
+  "name": "Avatar",
+  "description": "",
+  "sort_mode": "manual",
+  "ordering_basis": "chronological release order",
+  "items": [
+    {
+      "order": 1,
+      "type": "movie",
+      "series_code": "AVATAR",
+      "series_title": "Avatar",
+      "season": null,
+      "episode": null,
+      "episode_code": null,
+      "title": "Avatar",
+      "key": "AVATAR:2009",
+      "arc_id": null,
+      "arc_part": null,
+      "arc_parts": null,
+      "year": 2009
+    },
+    {
+      "order": 2,
+      "type": "movie",
+      "series_code": "AVATAR",
+      "series_title": "Avatar: Istota wody / Avatar: The Way of Water",
+      "season": null,
+      "episode": null,
+      "episode_code": null,
+      "title": "Avatar: Istota wody / Avatar: The Way of Water",
+      "key": "AVATAR:2022",
+      "arc_id": null,
+      "arc_part": null,
+      "arc_parts": null,
+      "year": 2022
+    },
+    {
+      "order": 3,
+      "type": "movie",
+      "series_code": "AVATAR",
+      "series_title": "Avatar: Ogień i popiół / Avatar: Fire and Ash",
+      "season": null,
+      "episode": null,
+      "episode_code": null,
+      "title": "Avatar: Ogień i popiół / Avatar: Fire and Ash",
+      "key": "AVATAR:2025",
+      "arc_id": null,
+      "arc_part": null,
+      "arc_parts": null,
+      "year": 2025
+    }
+  ]
+}

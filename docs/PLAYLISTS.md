@@ -9,6 +9,8 @@
 
 Odtwarzacz korzysta ze źródeł udostępnionych w Twoim katalogu. Przy odtwarzaniu automatycznym wybiera hosting zgodnie z zapisanymi preferencjami. Jeśli źródło wymaga zalogowania, otwórz **Zaloguj / CAPTCHA** w jego ustawieniach.
 
+W sekcji gotowych playlist możesz uruchomić chronologię Stargate albo trzy filmy Avatar w kolejności premier: **Avatar** (2009), **Istota wody** (2022) i **Ogień i popiół** (2025). Cinema Hub dopasowuje tytuły do katalogu bieżącego użytkownika; identyfikatory pozycji i postęp pozostają w jego bazie.
+
 ## Własne playlisty
 
 - **Utwórz** listę i wyszukaj dowolny film albo odcinek; można mieszać odcinki z różnych seriali i filmy na tej samej liście.

@@ -1,5 +1,9 @@
 # Historia wydań
 
+## Przygotowywana aktualizacja
+
+- Dodano gotową playlistę trzech filmów Avatar w kolejności premier, z dopasowaniem tytułów do katalogu użytkownika.
+
 ## Kontener 1.3.23 – poprawki odtwarzania playlist
 
 - Poprawki wyboru właściwego nagrania, odcinków łączonych i przewijania podczas odtwarzania playlist. [Opis wydania](docs/RELEASE-1.3.23.md)
