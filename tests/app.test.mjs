@@ -1072,15 +1072,15 @@ test('TV client navigation and native player preserve progress without a second 
   }finally{let timer;const processId=browserServer.process()?.pid,shutdown=Promise.allSettled([browser.close(),browserServer.close()]),closed=await Promise.race([shutdown.then(()=>true),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),5000);})]);clearTimeout(timer);if(closed===false&&processId)try{process.kill(-processId,'SIGKILL');}catch{}sourceBrowser.resolve=originalResolve;store.saveSettings(adminId,settings);}
 });
 
-test('Theme tab controls menu sound volume independently and renders the selected audio gain',{skip:!process.env.CHROMIUM_PATH},async()=>{
+test('Theme tab controls menu sound volume independently and renders the selected audio gain',{skip:!process.env.CHROMIUM_PATH,timeout:60000},async()=>{
   const previous=(await request('/settings')).value,otherVolume=(await request('/settings',null,other)).value.soundVolume;
   for(const invalid of [-1,201,22.5,'70'])assert.equal((await request('/settings',{soundVolume:invalid},admin,'PATCH')).status,400);
-  const {chromium}=await import('playwright'),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
-  const context=await browser.newContext({viewport:{width:1280,height:720},userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.3.6'});
-  const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);
-  await context.addInitScript(()=>{window.AudioContext=function(){const audio=new OfflineAudioContext(1,14400,48000);audio.resume=()=>Promise.resolve();window.qaSound=audio;return audio;};});
-  const page=await context.newPage(),errors=[],levels=new Map();page.on('pageerror',error=>errors.push(error.message));
+  const {chromium}=await import('playwright'),browserServer=await chromium.launchServer({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']}),browser=await chromium.connect(browserServer.wsEndpoint());
   try{
+    const context=await browser.newContext({viewport:{width:1280,height:720},userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.3.6'});
+    const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);
+    await context.addInitScript(()=>{window.AudioContext=function(){const audio=new OfflineAudioContext(1,14400,48000);audio.resume=()=>Promise.resolve();window.qaSound=audio;return audio;};});
+    const page=await context.newPage(),errors=[],levels=new Map();page.on('pageerror',error=>errors.push(error.message));
     for(const volume of [0,25,50,100,150,200]){
       await request('/settings',{sounds:false,soundStyle:'retro',soundVolume:volume},admin,'PATCH');await page.goto(base);
       await page.getByRole('button',{name:'Ustawienia',exact:true}).click();assert.equal(await page.getByLabel('Dźwięk interfejsu',{exact:true}).count(),0,'Playback settings no longer contain theme sounds');await page.getByRole('button',{name:'Motyw',exact:true}).click();
@@ -1092,7 +1092,7 @@ test('Theme tab controls menu sound volume independently and renders the selecte
     const slider=page.getByRole('slider',{name:'Głośność dźwięków menu',exact:true});await slider.focus();await slider.press('ArrowDown');assert.equal(await slider.evaluate(el=>el===document.activeElement),false,'Idle sound slider does not trap the remote');
     await slider.focus();await slider.press('Enter');const saved=page.waitForResponse(response=>response.url().endsWith('/api/settings')&&response.request().method()==='PATCH'&&response.request().postDataJSON().soundVolume===195);await slider.press('ArrowLeft');await saved;await slider.press('Enter');assert.equal(await slider.getAttribute('data-tv-editing'),null);assert.equal((await request('/settings')).value.soundVolume,195);assert.equal((await request('/settings',null,other)).value.soundVolume,otherVolume,'Volume belongs to one account');assert.equal((await request('/settings')).value.volumeBoost,previous.volumeBoost,'Film volume is independent');
     if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'theme-menu-sound-volume.png')});assert.deepEqual(errors,[]);
-  }finally{await browser.close();await request('/settings',previous,admin,'PUT');}
+  }finally{let timer;const processId=browserServer.process()?.pid,shutdown=Promise.allSettled([browser.close(),browserServer.close()]),closed=await Promise.race([shutdown.then(()=>true),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),5000);})]);clearTimeout(timer);if(closed===false&&processId)try{process.kill(-processId,'SIGKILL');}catch{}await request('/settings',previous,admin,'PUT');}
 });
 
 test('Poster scale requires OK before remote adjustment and releases navigation on OK, Back or blur',{skip:!process.env.CHROMIUM_PATH},async()=>{
