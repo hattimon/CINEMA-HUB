@@ -1020,7 +1020,7 @@ test('Manual cloud queue streams the complete film directly to authenticated Web
 });
 test('TV client navigation and native player preserve progress without a second web stream',{skip:!process.env.CHROMIUM_PATH},async()=>{
   const settings=(await request('/settings')).value,adminId=store.db.prepare('SELECT id FROM users WHERE username=?').get('admin').id;await request('/settings',{...settings,defaultSources:[source.id],autoplay:false},admin,'PUT');
-  const {chromium}=await import('playwright');const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']});
+  const {chromium}=await import('playwright'),browserServer=await chromium.launchServer({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage']}),browser=await chromium.connect(browserServer.wsEndpoint());
   try {
     const context=await browser.newContext({viewport:{width:1280,height:720},userAgent:'Mozilla/5.0 Chrome/140.0.0.0 CinemaHubTV/1.0'});
     const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);
@@ -1068,7 +1068,7 @@ test('TV client navigation and native player preserve progress without a second 
     await page.getByRole('button',{name:'Ustawienia',exact:true}).click();await page.getByRole('heading',{name:'Priorytety hostingów — maksymalnie 3',exact:true}).waitFor();assert.equal(await page.locator('label').filter({hasText:/Hosting numer [123]/}).count(),3);
     await page.getByLabel('Hosting numer 1',{exact:true}).selectOption('voe.sx');await page.getByText('Ustawienia zapisane.',{exact:true}).waitFor();const hosts=(await request('/settings')).value.preferredHosts;assert.equal(hosts[0],'voe.sx');assert.equal(hosts.filter(host=>host==='voe.sx').length,1,'Selecting an existing preferred host swaps priorities');
     if(process.env.QA_SCREENSHOT_DIR)await page.screenshot({path:resolve(process.env.QA_SCREENSHOT_DIR,'cinema-hosting-settings.png'),fullPage:false});assert.deepEqual(errors,[]);
-  }finally{let timer;const processId=browser.process()?.pid,closed=await Promise.race([browser.close().then(()=>true),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),5000);})]);clearTimeout(timer);if(closed===false&&processId)try{process.kill(-processId,'SIGKILL');}catch{}store.saveSettings(adminId,settings);}
+  }finally{let timer;const processId=browserServer.process()?.pid,shutdown=Promise.allSettled([browser.close(),browserServer.close()]),closed=await Promise.race([shutdown.then(()=>true),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),5000);})]);clearTimeout(timer);if(closed===false&&processId)try{process.kill(-processId,'SIGKILL');}catch{}store.saveSettings(adminId,settings);}
 });
 
 test('Theme tab controls menu sound volume independently and renders the selected audio gain',{skip:!process.env.CHROMIUM_PATH},async()=>{
