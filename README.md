@@ -2,7 +2,7 @@
 
 <p align="center">
 <img alt="Serwer 1.3.24" src="https://img.shields.io/badge/serwer-1.3.24-a28aff">
-<img alt="Android TV 1.3.24 w przygotowaniu" src="https://img.shields.io/badge/Android_TV-1.3.24_(lokalnie)-3ddc84">
+<img alt="Android TV 1.3.24 — kandydat wydania" src="https://img.shields.io/badge/Android_TV-1.3.24-candidate-3ddc84">
 <img alt="Docker amd64 i arm64" src="https://img.shields.io/badge/Docker-amd64_%7C_arm64-2496ed">
 </p>
 
@@ -22,7 +22,7 @@
 
 Każde konto ma własne logowania do źródeł, ustawienia, ulubione, historię oglądania i kolejkę ręcznego zapisu. Repozytorium zawiera kod aplikacji i gotowy klient APK, bez filmów oraz danych użytkowników.
 
-<p align="center"><a href="docs/RELEASE-1.3.24.md"><strong>Wspólne wydanie 1.3.24 — przygotowywane lokalnie</strong></a> · <a href="https://github.com/hattimon/CINEMA-HUB/releases"><strong>Opublikowane wydania</strong></a> · <a href="docs/INSTALL.md">Instalacja Docker</a> · <a href="docs/ANDROID-TV.md">Android TV i pilot</a> · <a href="docs/SOURCES.md">Konfiguracja źródeł</a></p>
+<p align="center"><a href="docs/RELEASE-1.3.24.md"><strong>Wspólne wydanie 1.3.24</strong></a> · <a href="https://github.com/hattimon/CINEMA-HUB/releases"><strong>Opublikowane wydania</strong></a> · <a href="docs/INSTALL.md">Instalacja Docker</a> · <a href="docs/ANDROID-TV.md">Android TV i pilot</a> · <a href="docs/SOURCES.md">Konfiguracja źródeł</a></p>
 
 ## Instalacja jednym kliknięciem przez DCC
 
@@ -52,13 +52,13 @@ Wybierz host Docker na Windows lub Linux, otwórz sklep aplikacji i kliknij **SK
 | Windows | Docker Desktop z kontenerami Linux + Cinema Hub | `http://localhost:8090/` |
 | Linux | Docker na amd64 lub ARM64 + Cinema Hub | `http://localhost:8090/` |
 | Raspberry Pi | Docker na systemie 64-bit ARM64 + Cinema Hub | `http://IP_RASPBERRY_PI:9999/` |
-| Android TV / Google TV | [Wydana wcześniej wersja 1.3.11](https://github.com/hattimon/CINEMA-HUB/releases/tag/android-v1.3.11); przygotowana lokalnie 1.3.24 | Wpisujesz IP i port wybranego serwera |
+| Android TV / Google TV | [Wydanie 1.3.24](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.24) | Wpisujesz IP i port wybranego serwera |
 
-APK **1.3.24** zbudowano i podpisano lokalnie razem z serwerem **1.3.24**; testy automatyczne Android przeszły, a test na fizycznym telewizorze pozostaje do wykonania. Ta wspólna wersja **nie została jeszcze opublikowana**. Wydane wcześniej APK **1.3.11** korzysta z panelu serwera i nadal jest dostępne. Aplikacja sprawdza aktualizacje przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
+APK **1.3.24** zbudowano i podpisano razem z serwerem **1.3.24**. Automatyczne testy Android przeszły; test na fizycznym telewizorze pozostaje do wykonania. Publikacja obrazu serwera jest uzależniona od testów GitHub Actions dla obu architektur. Aplikacja sprawdza aktualizacje przy uruchomieniu; ręczne sprawdzenie jest w **MENU → Sprawdź aktualizacje**. Pobranie wymaga zgody użytkownika, a instalację zatwierdza się w systemie Android.
 
 ## Szybki start
 
-Po publikacji pobierz paczkę `CinemaHub-Server-v1.3.24.zip` z [wydania serwera 1.3.24](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.24) i rozpakuj ją. Do tego czasu możesz użyć [najnowszego opublikowanego wydania](https://github.com/hattimon/CINEMA-HUB/releases) albo sklonować repozytorium:
+Pobierz paczkę `CinemaHub-Server-v1.3.24.zip` z [wydania 1.3.24](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.24) i rozpakuj ją. Możesz też sklonować repozytorium:
 
 ```sh
 git clone https://github.com/hattimon/CINEMA-HUB.git
@@ -77,7 +77,7 @@ cd CINEMA-HUB
 sh install-raspberry-pi.sh
 ```
 
-Instalatory tworzą lokalny plik `.env` z losowym hasłem startowego konta **admin**, jeśli plik jeszcze nie istnieje. Hasło odczytasz z pola `INITIAL_ADMIN_PASSWORD` w swoim `.env`. Konto startowe jest tworzone tylko dla nowej bazy. Docelowy obraz `ghcr.io/hattimon/cinema-hub:1.3.24` zostanie udostępniony wraz ze wspólnym wydaniem; do czasu publikacji wybierz [dostępny tag](https://github.com/hattimon/CINEMA-HUB/pkgs/container/cinema-hub) lub zbuduj obraz lokalnie: Windows `-Build`, Pi `--build`.
+Instalatory tworzą lokalny plik `.env` z losowym hasłem startowego konta **admin**, jeśli plik jeszcze nie istnieje. Hasło odczytasz z pola `INITIAL_ADMIN_PASSWORD` w swoim `.env`. Konto startowe jest tworzone tylko dla nowej bazy. Obraz `ghcr.io/hattimon/cinema-hub:1.3.24` jest publikowany przez GitHub Actions po przejściu testów na obu architekturach. Możesz też zbudować obraz lokalnie: Windows `-Build`, Pi `--build`.
 
 Pełna instrukcja, porty, aktualizacje i kopie danych: **[Instalacja i utrzymanie](docs/INSTALL.md)**.
 

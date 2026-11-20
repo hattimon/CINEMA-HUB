@@ -1,6 +1,6 @@
 # Cinema Hub 1.3.24 – wspólne zmiany playlist i Stargate
 
-**Status: przygotowane lokalnie; wymaga zakończenia testów na urządzeniu i weryfikacji wideo przed publikacją.** Jeden tag `v1.3.24` i jeden GitHub Release dla obu grup poprawek.
+**Status: publikacja 1.3.24 została zatwierdzona.** Push taga uruchamia testy CI i budowę obrazów amd64/arm64; GitHub Release i katalog DCC zostaną uzupełnione po powodzeniu workflow. Test fizycznego Android TV i weryfikacja rzeczywistego wideo pozostają nieprzeprowadzone i są jawnie opisane poniżej.
 
 ## Playlisty
 
@@ -36,11 +36,11 @@
 | Stargate: identyfikacja odcinka, stare tokeny i blokada błędnego źródła | Testy `stargate.test.mjs`; audyt archiwalnych adresów | Rzeczywiste klatki każdego materiału; szczególnie Atlantis S01E09 pozostaje zablokowany |
 | Aktualizacja serwera/Android TV przez DCC | Przygotowana paczka i projekt wpisu katalogu | Obraz GHCR `amd64`/`arm64`, wdrożenie oraz weryfikacja zachowania `/data` po restarcie |
 
-**Status odbioru: blokada publikacji.** Pełny zestaw testów nie przeszedł, nie potwierdzono wideo żadnego z 314 odcinków, nie zakończono testów na fizycznym Android TV ani w obrazie CI/GHCR. Nie wiadomo, dlaczego źródłowo obcy film odtwarzał się pod Atlantis S01E09. Nie ma potwierdzonego zamiennika. Żaden tag, obraz GHCR ani GitHub Release 1.3.24 nie został opublikowany.
+**Status odbioru: CI-gated.** Poprzedni pełny zestaw lokalny miał 35 niepowodzeń związanych głównie z ograniczeniami localhost/Playwright; GitHub Actions uruchamia pełny zestaw w izolowanym obrazie przed publikacją GHCR. Nie potwierdzono wideo żadnego z 314 odcinków ani nie zakończono testu na fizycznym Android TV. Atlantis S01E09 pozostaje zablokowany, dopóki właściwy materiał nie zostanie potwierdzony. Użytkownik zatwierdził publikację z tymi ograniczeniami.
 
 ## Plan pojedynczej publikacji
 
-1. Przejście pełnego zestawu testów oraz weryfikacji obrazu na wszystkich dostępnych materiałach i pilota Android TV.
-2. Jeden commit zawierający obie grupy poprawek, tag `v1.3.24`, test i publikacja obrazów GHCR `1.3.24` na obie architektury.
-3. Jeden GitHub Release `v1.3.24` z archiwum `CinemaHub-Server-v1.3.24.zip`, **APK `CinemaHub-AndroidTV-v1.3.24.apk`**, sumami SHA-256 i notatkami. Zaktualizowany wpis katalogu DCC powinien wskazywać `1.3.24`, aby Updater wykrył tę wersję.
-4. Aktualizacja przez DCC Updater z zachowaniem wolumenu `/data` i potwierdzony test po restarcie.
+1. Push commita i taga `v1.3.24`; GitHub Actions uruchamia pełne testy oraz buduje i publikuje manifesty GHCR `1.3.24` dla obu architektur wyłącznie po ich przejściu.
+2. Po sukcesie workflow utworzyć GitHub Release `v1.3.24` z `CinemaHub-Server-v1.3.24.zip`, **APK `CinemaHub-AndroidTV-v1.3.24.apk`**, sumami SHA-256 i notatkami.
+3. Po publikacji obrazu i Release zaktualizować katalog DCC do `1.3.24`, aby Updater wykrył wersję.
+4. Zaktualizować przez DCC Updater z zachowaniem wolumenu `/data` i zweryfikować usługę po restarcie.
