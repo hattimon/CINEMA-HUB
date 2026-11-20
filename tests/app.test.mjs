@@ -818,7 +818,8 @@ test('Legacy joined episodes preserve the playlist cursor, progress and shuffle 
   const cookie=login.response.headers.get('set-cookie').split(';')[0];
   const sourceId=(await request('/sources',undefined,cookie)).value.find(source=>source.type==='filman').id;
   const parent=store.saveItem(sourceId,{title:'Stargate Atlantis',kind:'series',url:'https://filman.cc/s/1963/gwiezdne-wrota-atlantyda-stargate-atlantis',
-    episodes:[1,2,3,4].map(number=>({season:1,number,title:'Part '+number,url:'https://filman.cc/e/joined-fixture/'+number}))});
+    episodes:[1,2,3,4].map(number=>({season:1,number,title:'Part '+number,
+      url:'https://filman.cc/e/gwiezdne-wrota-atlantyda-stargate-atlantis/'+(40000+number)+'/part-'+number+'/388690}))});
   const created=await request('/playlists',{name:'Joined episode history'},cookie);
   assert.equal(created.status,201);
   const id=created.value.id;
@@ -965,6 +966,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await finishVideo();
       await waitForPlayback(series[0][2],'Sezon 1 · Odcinek 1');
       const initialSource=await page.locator('.player-overlay video').getAttribute('src');
+      await page.getByRole('button',{name:'Menu efektów podczas odtwarzania',exact:true}).click();
       await page.getByRole('button',{name:'Playlista',exact:true}).click();
       await page.locator('.playlist-drawer').waitFor({state:'visible'});
       assert.equal(await page.locator('.player-overlay video').getAttribute('src'),initialSource);
