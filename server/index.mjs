@@ -5,6 +5,8 @@ import httpProxy from 'http-proxy';
 import { randomBytes } from 'node:crypto';
 import { installAccountRoutes } from './account-routes.mjs';
 import { installPlaylistRoutes } from './playlist-routes.mjs';
+import { stargatePlaybackStatus } from './stargate-playlists.mjs';
+import { assertPlaybackIdentity } from './playback-identity.mjs';
 import { resolve } from 'node:path';
 import { existsSync,readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -28,6 +30,14 @@ app.use(express.json({limit:'128kb'}));
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff').set('Referrer-Policy','same-origin').set('X-Frame-Options','SAMEORIGIN');if(req.path.startsWith('/api'))res.set('Cache-Control','no-store');next();});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const asyncRoute=handler=>(req,res,next)=>Promise.resolve(handler(req,res)).catch(next);
+function assertStargateEpisode(item, source, episode) {
+  const status = stargatePlaybackStatus(item, source, episode);
+  if (!status.valid) throw fail(status.reason, 409);
+}
+function verifiedPlayback(id, userId) {
+  const playback = playbackFor(id, userId);
+  return assertPlaybackIdentity(playback, userId);
+}
 function originAllowed(req) {if(!req.headers.origin)return !req.headers['sec-fetch-site']||['same-origin','same-site','none'].includes(req.headers['sec-fetch-site']);try{return new URL(req.headers.origin).host===req.headers.host || req.headers.origin===process.env.PUBLIC_ORIGIN;}catch{return false;}}
 app.use((req,res,next)=>{if(!['GET','HEAD','OPTIONS'].includes(req.method)&&!originAllowed(req))return res.status(403).json({error:'Żądanie pochodzi z innej strony.'});next();});
 function sessionUser(req) {const token=req.cookies.cinema_session;if(!token)return null;return db.prepare('SELECT u.id,u.username,u.role,u.initial FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(hashId(token),now())||null;}
@@ -38,7 +48,7 @@ installPlaylistRoutes(app,auth);
 const loginSchema=z.object({username:z.string().min(1).max(40),password:z.string().min(1).max(256),remember:z.boolean().default(false)});
 const loginLimits=new Map();
 app.get('/api/health',(_req,res)=>res.json({status:'ok',service:'cinema-hub',version:appVersion,localRevision:'resume-progress-20261023'}));
-app.get('/download/cinema-hub.apk',(_req,res,next)=>{const bundled=resolve('clients/CinemaHub-AndroidTV-v1.3.11.apk'),source=resolve('releases/CinemaHub-AndroidTV-v1.3.11.apk'),file=existsSync(bundled)?bundled:existsSync(source)?source:resolve(dataDir,'clients','cinema-hub.apk');res.type('application/vnd.android.package-archive');res.download(file,'CinemaHub-AndroidTV-v1.3.11.apk',error=>{if(error&&!res.headersSent)next(error);});});
+app.get('/download/cinema-hub.apk',(_req,res,next)=>{const bundled=resolve('clients/CinemaHub-AndroidTV-v1.3.24.apk'),source=resolve('releases/CinemaHub-AndroidTV-v1.3.24.apk'),file=existsSync(bundled)?bundled:existsSync(source)?source:resolve(dataDir,'clients','cinema-hub.apk');res.type('application/vnd.android.package-archive');res.download(file,'CinemaHub-AndroidTV-v1.3.24.apk',error=>{if(error&&!res.headersSent)next(error);});});
 app.post('/api/auth/login',asyncRoute(async(req,res)=>{const value=loginSchema.parse(req.body);const ip=req.socket.remoteAddress;let limit=loginLimits.get(ip);if(limit&&limit.reset<now()){loginLimits.delete(ip);limit=null;}if(limit&&limit.count>=8)throw fail('Za wiele prób. Spróbuj za 5 minut.',429);const user=db.prepare('SELECT * FROM users WHERE username=? COLLATE NOCASE').get(value.username);
   if(!user||!passwordMatches(value.password,user.password)){loginLimits.set(ip,{count:(limit?.count||0)+1,reset:limit?.reset||now()+5*60000});throw fail('Nieprawidłowy login lub hasło.',401);}loginLimits.delete(ip);const token=uid()+uid();const ttl=(value.remember?30:1)*86400000;db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(hashId(token),user.id,now()+ttl);res.cookie('cinema_session',token,{...cookieOptions,...(value.remember?{maxAge:ttl}:{})});res.json({id:user.id,username:user.username,role:user.role,initial:!!user.initial});}));
 app.get('/api/auth/me',auth,(req,res)=>res.json({...req.user,initial:!!req.user.initial}));
@@ -125,6 +135,7 @@ app.post('/api/catalog',auth,asyncRoute(async(req,res)=>{
 app.get('/api/items/:id',auth,asyncRoute(async(req,res)=>{const item=getItem(req.params.id,req.user.id),source=getSource(item.sourceId,req.user.id);const result=await detail(source,item);res.json(decorateItem(saveItem(source.id,{...result,sourceName:source.name}),req.user.id));}));
 app.post('/api/items/:id/check',auth,asyncRoute(async(req,res)=>{const b=z.object({episode:z.string().max(2048).optional(),linkId:z.string().max(80).optional(),link:z.object({host:z.string().max(200),version:z.string().max(80),quality:z.string().max(40)}).optional(),auto:z.boolean().default(false),fresh:z.boolean().default(false),preferredVersion:z.string().max(80).optional(),preferredHost:z.string().max(200).optional(),excludeLinkIds:z.array(z.string().max(80)).max(30).default([])}).parse(req.body);const item=getItem(req.params.id,req.user.id),source=getSource(item.sourceId,req.user.id);let episode;
   if(b.episode){episode=item.episodes?.find(e=>e.url===b.episode);if(!episode)throw fail('Odcinek nie należy do tego serialu.');}else if(item.kind==='series')throw fail('Wybierz odcinek.');
+  assertStargateEpisode(item, source, episode);
   let links=await itemLinks(req.user.id,item,source,episode);if(b.linkId){const exact=links.filter(l=>l.id===b.linkId&&(!b.link||l.host===b.link.host&&l.version===b.link.version&&l.quality===b.link.quality));const matching=b.link?links.filter(l=>l.host===b.link.host&&l.version===b.link.version&&l.quality===b.link.quality):[];links=exact.length?exact:source.type!=='filman'&&matching.length===1?matching:[];if(!links.length)throw fail('Lista hostingów zmieniła się. Otwórz ponownie szczegóły i wybierz dostępny link.');}
   if(b.auto)links=links.filter(l=>!b.excludeLinkIds.includes(l.id));
   if(['filman','vider'].includes(source.type)){
@@ -134,10 +145,11 @@ app.post('/api/items/:id/check',auth,asyncRoute(async(req,res)=>{const b=z.objec
   }
   res.json({id:beginCheck(req.user.id,source,item,episode,links,{stopOnSuccess:b.auto,fresh:b.fresh,expectedSelection:{title:item.title,kind:item.kind,year:item.year,episode:episode?{season:episode.season,number:episode.number}:undefined}}),total:links.length,selectedLinkId:b.linkId?links[0].id:undefined});
 }));
-app.get('/api/items/:id/links',auth,asyncRoute(async(req,res)=>{const item=getItem(req.params.id,req.user.id),source=getSource(item.sourceId,req.user.id);const episode=req.query.episode?item.episodes?.find(e=>e.url===req.query.episode):null;if(req.query.episode&&!episode)throw fail('Nieprawidłowy odcinek.');const links=await itemLinks(req.user.id,item,source,episode);res.json(links.map(({id,host,version,quality})=>({id,host,version,quality})));}));
+app.get('/api/items/:id/links',auth,asyncRoute(async(req,res)=>{const item=getItem(req.params.id,req.user.id),source=getSource(item.sourceId,req.user.id);const episode=req.query.episode?item.episodes?.find(e=>e.url===req.query.episode):null;if(req.query.episode&&!episode)throw fail('Nieprawidłowy odcinek.');assertStargateEpisode(item,source,episode);const links=await itemLinks(req.user.id,item,source,episode);res.json(links.map(({id,host,version,quality})=>({id,host,version,quality})));}));
 app.get('/api/items/:id/ready',auth,(req,res,next)=>{try{
   const item=getItem(req.params.id,req.user.id),episode=req.query.episode||'';
   if(episode&&!item.episodes?.some(e=>e.url===episode))throw fail('Nieprawidłowy odcinek.');
+  assertStargateEpisode(item,getSource(item.sourceId,req.user.id),episode?item.episodes.find(e=>e.url===episode):null);
   const enabled=new Set(listSources(req.user.id).filter(source=>source.enabled).map(source=>source.id));const merge=getSettings(req.user.id).combineSources;
   const ready=[...playbacks.values()].reverse().filter(p=>p.userId===req.user.id&&enabled.has(p.sourceId)&&(merge||p.sourceId===item.sourceId)&&p.itemId===item.id&&(p.episode?.url||'')===episode&&p.expires>now());
   const distinct=new Map();for(const p of ready){const key=JSON.stringify([p.link.host,p.link.version,p.quality]);if(!distinct.has(key))distinct.set(key,{id:p.selectedLinkId||p.link.id,host:p.link.host,version:p.link.version,quality:p.quality||p.link.quality,kind:p.kind,playbackId:p.id});}
@@ -170,16 +182,16 @@ app.get('/api/poster/:id',auth,asyncRoute(async(req,res)=>{
   }
   res.set('Cache-Control','private, max-age=3600').type(type).send(await readBounded(upstream,8*1024*1024));
 }));
-app.get('/api/playback/:id/media',auth,asyncRoute(async(req,res)=>relay(playbackFor(req.params.id,req.user.id),req,res,{prefix:`/api/playback/${req.params.id}`})));
-app.get('/api/playback/:id/asset/:asset',auth,asyncRoute(async(req,res)=>relay(playbackFor(req.params.id,req.user.id),req,res,{prefix:`/api/playback/${req.params.id}`,assetId:req.params.asset})));
+app.get('/api/playback/:id/media',auth,asyncRoute(async(req,res)=>relay(verifiedPlayback(req.params.id,req.user.id),req,res,{prefix:`/api/playback/${req.params.id}`})));
+app.get('/api/playback/:id/asset/:asset',auth,asyncRoute(async(req,res)=>relay(verifiedPlayback(req.params.id,req.user.id),req,res,{prefix:`/api/playback/${req.params.id}`,assetId:req.params.asset})));
 app.get('/internal/export/:token/media',asyncRoute(serveInternal));app.get('/internal/export/:token/asset/:asset',asyncRoute(serveInternal));
 app.get('/api/downloads',auth,(req,res)=>res.json(db.prepare('SELECT * FROM downloads WHERE user_id=? ORDER BY updated DESC').all(req.user.id).map(row=>{const job=JSON.parse(row.value);delete job.userId;delete job.link;delete job.pageURL;return {...job,id:row.id,status:row.status,updated:row.updated};})));
-app.post('/api/downloads',auth,(req,res,next)=>{try{const b=z.object({playbackId:z.string(),destination:z.string().default('device')}).parse(req.body);const p=playbackFor(b.playbackId,req.user.id),item=getItem(p.itemId,req.user.id);if(b.destination!=='device')getDestination(b.destination,req.user.id);const id=uid();const value={id,userId:req.user.id,playbackId:p.id,sourceId:p.sourceId,itemId:item.id,pageURL:p.pageURL,link:p.link,episode:p.episode||null,destination:b.destination,filename:filenameFor(item,p.episode,p.quality).replace(/\.mp4$/,p.kind==='webm'||/\.webm$/i.test(p.url)?'.webm':'.mp4'),title:item.title,bytes:0,attempts:0};db.prepare('INSERT INTO downloads VALUES(?,?,?,?,?)').run(id,req.user.id,JSON.stringify(value),'queued',now());res.status(201).json({id,filename:value.filename,destination:b.destination,status:'queued'});}catch(e){next(e);}});
+app.post('/api/downloads',auth,(req,res,next)=>{try{const b=z.object({playbackId:z.string(),destination:z.string().default('device')}).parse(req.body);const p=verifiedPlayback(b.playbackId,req.user.id),item=getItem(p.itemId,req.user.id);if(b.destination!=='device')getDestination(b.destination,req.user.id);const id=uid();const value={id,userId:req.user.id,playbackId:p.id,sourceId:p.sourceId,itemId:item.id,pageURL:p.pageURL,link:p.link,episode:p.episode||null,destination:b.destination,filename:filenameFor(item,p.episode,p.quality).replace(/\.mp4$/,p.kind==='webm'||/\.webm$/i.test(p.url)?'.webm':'.mp4'),title:item.title,bytes:0,attempts:0};db.prepare('INSERT INTO downloads VALUES(?,?,?,?,?)').run(id,req.user.id,JSON.stringify(value),'queued',now());res.status(201).json({id,filename:value.filename,destination:b.destination,status:'queued'});}catch(e){next(e);}});
 const deviceLocks=new Map();
 app.get('/api/downloads/:id/file',auth,asyncRoute(async(req,res)=>{
   let job=downloadFor(req.params.id,req.user.id);if(job.destination!=='device')throw fail('Plik jest zapisany w wskazanym magazynie.');
   const owner=req.user.id,previous=deviceLocks.get(owner)||Promise.resolve();let release;const lock=new Promise(r=>release=r),tail=previous.catch(()=>{}).then(()=>lock);deviceLocks.set(owner,tail);await previous.catch(()=>{});
-  activeDownloads.set(job.id,()=>res.destroy());let bytes=0,last=0;try{if(res.destroyed)return;job=downloadFor(req.params.id,owner);if(job.status==='cancelled')throw fail('Pobieranie anulowano.');const candidate=await freshPlayback({...job,userId:owner});updateDownload({...job,userId:owner},'downloading',{bytes:0});const write=res.write;res.write=function(chunk,...args){bytes+=typeof chunk==='string'?Buffer.byteLength(chunk):chunk.length;if(now()-last>1000){last=now();updateDownload({...job,userId:owner},'downloading',{bytes});}return write.call(this,chunk,...args);};await exportToDevice(candidate,req,res,job.filename);if(downloadActive({...job,userId:owner}))updateDownload({...job,userId:owner},res.writableFinished&&bytes>1024?'ready':'paused',{bytes});}catch(e){if(downloadActive({...job,userId:owner}))updateDownload({...job,userId:owner},'failed',{bytes,error:'Pobieranie przerwane. Spróbuj ponownie.'});throw e;}finally{activeDownloads.delete(job.id);release();if(deviceLocks.get(owner)===tail)deviceLocks.delete(owner);}
+  activeDownloads.set(job.id,()=>res.destroy());let bytes=0,last=0;try{if(res.destroyed)return;job=downloadFor(req.params.id,owner);if(job.status==='cancelled')throw fail('Pobieranie anulowano.');const candidate=await freshPlayback({...job,userId:owner});updateDownload({...job,userId:owner},'downloading',{bytes:0});const write=res.write;res.write=function(chunk,...args){bytes+=typeof chunk==='string'?Buffer.byteLength(chunk):chunk.length;if(now()-last>1000){last=now();updateDownload({...job,userId:owner},'downloading',{bytes});}return write.call(this,chunk,...args);};await exportToDevice(candidate,req,res,job.filename);if(downloadActive({...job,userId:owner}))updateDownload({...job,userId:owner},res.writableFinished&&bytes>1024?'ready':'paused',{bytes});}catch(e){if(downloadActive({...job,userId:owner}))updateDownload({...job,userId:owner},[409,410].includes(e.status)?'paused':'failed',{bytes,error:[409,410].includes(e.status)?e.message:'Pobieranie przerwane. Spróbuj ponownie.'});throw e;}finally{activeDownloads.delete(job.id);release();if(deviceLocks.get(owner)===tail)deviceLocks.delete(owner);}
 }));
 app.put('/api/downloads/:id/state',auth,(req,res,next)=>{try{const job=downloadFor(req.params.id,req.user.id);if(job.destination!=='device')throw fail('Stan zadania chmurowego aktualizuje serwer.');const b=z.object({status:z.enum(['queued','paused','downloading','ready','failed']),bytes:z.number().int().min(0).max(100000000000).default(0),error:z.string().max(200).optional()}).parse(req.body);res.json(updateDownload({...job,userId:req.user.id},b.status,{bytes:b.bytes,error:b.error}));}catch(e){next(e);}});
 app.post('/api/downloads/:id/cancel',auth,(req,res,next)=>{try{res.json(cancelDownload(req.params.id,req.user.id));}catch(e){next(e);}});

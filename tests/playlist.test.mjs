@@ -106,6 +106,11 @@ const add=(id,label,revision)=>call('post','/api/playlists/:id/entries',{
 });
 const get=id=>call('get','/api/playlists/:id',{params:{id}});
 
+const filmanSourceId=store.db.prepare("SELECT id FROM sources WHERE user_id=? AND type='filman'").get(first.id).id;
+const sgaURL='https://filman.cc/s/1963/gwiezdne-wrota-atlantyda-stargate-atlantis';
+const atlEpisode=(n,urlId=36729+n)=>({season:1,number:n,title:n===9?'Dom':'Odcinek testowy',
+  url:`https://filman.cc/e/gwiezdne-wrota-atlantyda-stargate-atlantis/${urlId}/episode-${n}/0`});
+
 function readPreset(name) {
   const folder=existsSync(resolve('dist/index.html'))?'dist':'public';
   return readFileSync(resolve(folder,'playlists',name),'utf8');
@@ -116,6 +121,73 @@ test('playlist tables are initialized only when the authenticated playlist API i
   assert.deepEqual(schema(),[]);
   assert.deepEqual(call('get','/api/playlists'),[]);
   assert.deepEqual(schema(),['playlist_entries','playlists']);
+});
+
+test('Atlantis Home S01E09 cannot be linked and retains progress and cursor',()=>{
+  const episode=atlEpisode(9,36738);
+  const item=store.saveItem(filmanSourceId,{kind:'series',title:'Gwiezdne wrota: Atlantyda / Stargate Atlantis',
+    url:sgaURL,episodes:[episode]});
+  let p=create('Quarantined Atlantis Home');
+  p=call('post','/api/playlists/:id/entries',{params:{id:p.id},body:{entry:{
+    label:'Atlantis S01E09 Dom',itemId:item.id,season:1,episode:9,episodeUrl:episode.url,
+    metadata:{series_code:'SGA'},
+  }}});
+  const entry=p.entries[0];
+  assert.equal(entry.itemId,null);
+  assert.equal(entry.episodeUrl,null);
+  assert.equal(entry.needsStargateLink,true);
+  assert.equal(entry.metadata.original_item_id,item.id);
+  assert.equal(entry.metadata.original_episode_url,episode.url);
+  call('patch','/api/playlists/:id/entries/:entryId/progress',{params:{id:p.id,entryId:entry.id},body:{position:123}});
+  call('patch','/api/playlists/:id/playback',{params:{id:p.id},body:{cursorId:entry.id}});
+  const reload=get(p.id);
+  assert.equal(reload.cursorId,entry.id);
+  assert.equal(reload.entries[0].playbackPosition,123);
+  assert.equal(reload.entries[0].id,entry.id);
+});
+
+test('synchronization that changes an Atlantis episode URL unlinks all playlist references without erasing history',()=>{
+  const initial=atlEpisode(8);
+  const item=store.saveItem(filmanSourceId,{kind:'series',title:'Gwiezdne wrota: Atlantyda / Stargate Atlantis',
+    url:sgaURL,episodes:[initial]});
+  let p=create('Atlantis URL reconciliation');
+  p=call('post','/api/playlists/:id/entries',{params:{id:p.id},body:{entry:{
+    label:'Atlantis S01E08',itemId:item.id,season:1,episode:8,episodeUrl:initial.url,
+    metadata:{series_code:'SGA'},
+  }}});
+  const entryId=p.entries[0].id;
+  assert.equal(p.entries[0].itemId,item.id);
+  call('patch','/api/playlists/:id/entries/:entryId/progress',{params:{id:p.id,entryId},body:{position:215}});
+  call('patch','/api/playlists/:id/playback',{params:{id:p.id},body:{cursorId:entryId}});
+  const changed=store.saveItem(filmanSourceId,{kind:'series',title:item.title,url:sgaURL,
+    episodes:[atlEpisode(8,999987)]});
+  assert.ok(changed.stargateConflicts.includes('1:8'));
+  assert.equal(changed.episodes.find(e=>e.number===8).url,initial.url);
+  p=get(p.id);
+  assert.equal(p.entries[0].itemId,null);
+  assert.equal(p.entries[0].episodeUrl,null);
+  assert.equal(p.entries[0].playbackPosition,215);
+  assert.equal(p.cursorId,entryId);
+  assert.equal(p.entries[0].metadata.original_episode_url,initial.url);
+});
+
+test('a Stargate episode cannot bind to another series or to a movie',()=>{
+  const sg1=store.saveItem(filmanSourceId,{kind:'series',title:'Gwiezdne wrota / Stargate SG-1',
+    url:'https://filman.cc/s/1942/gwiezdne-wrota-stargate-sg-1',episodes:[{
+      season:1,number:9,url:'https://filman.cc/e/gwiezdne-wrota-stargate-sg-1/36492/krotka-swieca/388690',title:'Krótka świeca'}]});
+  let p=create('Cross-series binding');
+  p=call('post','/api/playlists/:id/entries',{params:{id:p.id},body:{entry:{
+    label:'Atlantis S01E09',itemId:sg1.id,season:1,episode:9,
+    episodeUrl:sg1.episodes[0].url,metadata:{series_code:'SGA'},
+  }}});
+  assert.equal(p.entries[0].itemId,null);
+  const movie=store.saveItem(filmanSourceId,{kind:'movie',title:'Obcy film',url:'https://filman.cc/m/another-movie'});
+  p=call('post','/api/playlists/:id/entries',{params:{id:p.id},body:{entry:{
+    label:'Atlantis S01E09',itemId:movie.id,season:1,episode:9,
+    episodeUrl:'https://filman.cc/m/another-movie',metadata:{series_code:'SGA'},
+  }}});
+  assert.equal(p.entries[1].itemId,null);
+  assert.equal(p.entries[1].episodeUrl,null);
 });
 test('The full chronology represents 317 episodes and films with 315 recordings',()=>{
   const preset=normalizedImport(readPreset('stargate_chronologia_cinema_hub.json'),'json');
@@ -205,6 +277,66 @@ test('restart resets all entries and cursor while retaining playlist order',()=>
   assert.equal(restarted.cursorId,null);
   assert.deepEqual(restarted.shuffleRemaining,[]);
   assert.deepEqual(restarted.shuffleHistory,[]);
+  assert.equal(restarted.restartGeneration,(p.restartGeneration??0)+1);
+});
+test('a delayed position update cannot reopen a completed episode',()=>{
+  let p=create('Completed race');p=add(p.id,'First',p.revision);
+  const entryId=p.entries[0].id,base=Date.now();
+  call('patch','/api/playlists/:id/entries/:entryId/progress',{
+    params:{id:p.id,entryId},body:{position:90,stamp:base,restartGeneration:0}
+  });
+  const completed=call('patch','/api/playlists/:id/entries/:entryId/progress',{
+    params:{id:p.id,entryId},body:{position:0,completed:true,stamp:base+1,restartGeneration:0}
+  });
+  assert.equal(completed.entries[0].completed,true);
+  for(const body of [{position:185,stamp:base+2},{position:18,completed:false,stamp:base+3}]){
+    const stale=call('patch','/api/playlists/:id/entries/:entryId/progress',{
+      params:{id:p.id,entryId},body:{...body,restartGeneration:0}
+    });
+    assert.equal(stale.entries[0].completed,true);
+    assert.equal(stale.entries[0].playbackPosition,0);
+    assert.equal(stale.entries[0].progressStamp,completed.entries[0].progressStamp);
+  }
+});
+test('restart generation rejects late writes even with future timestamps',()=>{
+  let p=create('Restart race');p=add(p.id,'First',p.revision);p=add(p.id,'Second',p.revision);
+  const [firstId,secondId]=p.entries.map(entry=>entry.id),base=Date.now();
+  call('patch','/api/playlists/:id/playback',{
+    params:{id:p.id},body:{cursorId:secondId,stamp:base,restartGeneration:0}
+  });
+  call('patch','/api/playlists/:id/entries/:entryId/progress',{
+    params:{id:p.id,entryId:secondId},body:{position:80,stamp:base,restartGeneration:0}
+  });
+  p=call('post','/api/playlists/:id/restart',{params:{id:p.id}});
+  assert.equal(p.restartGeneration,1);
+  assert.equal(p.cursorId,null);
+  assert.equal(p.entries[1].playbackPosition,0);
+  const oldStamp=base+1e9;
+  const oldCursor=call('patch','/api/playlists/:id/playback',{
+    params:{id:p.id},body:{cursorId:secondId,stamp:oldStamp,restartGeneration:0}
+  });
+  const oldPosition=call('patch','/api/playlists/:id/entries/:entryId/progress',{
+    params:{id:p.id,entryId:secondId},body:{position:317,completed:true,stamp:oldStamp,restartGeneration:0}
+  });
+  assert.equal(oldCursor.cursorId,null);
+  assert.equal(oldPosition.entries[1].playbackPosition,0);
+  assert.equal(oldPosition.entries[1].completed,false);
+  // Old clients without the generation field are equally unable to restore it.
+  const legacy=call('patch','/api/playlists/:id/playback',{
+    params:{id:p.id},body:{cursorId:secondId,stamp:oldStamp+1}
+  });
+  assert.equal(legacy.cursorId,null);
+  const stamp=Math.max(p.playbackStamp,p.entries[0].progressStamp,base)+1;
+  const currentCursor=call('patch','/api/playlists/:id/playback',{
+    params:{id:p.id},body:{cursorId:firstId,stamp,restartGeneration:1}
+  });
+  assert.equal(currentCursor.cursorId,firstId);
+  const currentPosition=call('patch','/api/playlists/:id/entries/:entryId/progress',{
+    params:{id:p.id,entryId:firstId},body:{position:42,stamp,restartGeneration:1}
+  });
+  assert.equal(currentPosition.entries[0].playbackPosition,42);
+  assert.equal(get(p.id).restartGeneration,1);
+  assert.throws(()=>call('get','/api/playlists/:id',{user:second,params:{id:p.id}}),/Nie znaleziono/);
 });
 test('invalid playback state cannot reference another entry',()=>{
   const p=create('Invalid queue');

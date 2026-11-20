@@ -11,6 +11,7 @@ import Login from './Login';
 import { enterTVGroup,focusTVSources } from './tv';
 import { advancePlaylist,selectPlaylistEntry,createPlaylistWriteQueue } from './playlist';
 import type { Playlist,PlaylistEntry,PlaylistSummary,QueueState } from './playlist';
+import {startPlaylistSync,recordPlaylistPosition,recordPlaylistCursor,discardPlaylistJournal,withLocalPlaylist,syncPlaylistJournalStamps} from './playlistProgress';
 const Player=lazy(()=>import('./Player'));
 const SettingsPanel=lazy(()=>import('./Settings'));
 const PlaylistsPanel=lazy(()=>import('./Playlists'));
@@ -89,8 +90,10 @@ export default function App() {
   const [resumePlayer,setResumePlayer]=useState<PlayerState|null>(null),[resumeRequest,setResumeRequest]=useState(0);
   const [activePlaylist,setActivePlaylist]=useState<Playlist|null>(null);
   const [playlistQueueOpen,setPlaylistQueueOpen]=useState(false);
+  const [playlistFinished,setPlaylistFinished]=useState(false);
   const playlistRef=useRef<Playlist|null>(null);
   const playlistRun=useRef(0);
+  const playlistPlayback=useRef<{playlistId:string;entryId:string;run:number}|null>(null);
   const playlistLastSave=useRef({key:'',at:0});
   const playlistWrites=useRef<ReturnType<typeof createPlaylistWriteQueue>|null>(null);
   playlistWrites.current??=createPlaylistWriteQueue();
@@ -119,6 +122,15 @@ export default function App() {
   const message=(value:string)=>{setToast(value);clearTimeout(toastTimer.current);toastTimer.current=setTimeout(()=>setToast(''),6000);};
   useEffect(()=>{void api<User>('/auth/me').then(setUser).catch(()=>{}).finally(()=>setBoot(false));return()=>clearTimeout(toastTimer.current);},[]);
   useEffect(()=>startProgressSync(user?.id||''),[user?.id]);
+  useEffect(()=>{
+    const stop=startPlaylistSync(user?.id||'');
+    return()=>{
+      const p=playlistRef.current;
+      if(p?.cursorId&&playerPosition.current>0&&!p.entries.find(e=>e.id===p.cursorId)?.completed)
+        recordPlaylistPosition(p.id,p.cursorId,playerPosition.current,undefined,p.restartGeneration??0);
+      stop();
+    };
+  },[user?.id]);
   const presentationQueue=useRef<Promise<void>>(Promise.resolve());
   const updatePresentation=(patch:Partial<Pick<Settings,'videoEffect'|'imageProfile'|'volumeBoost'|'audioMode'|'normalizerTargetDb'>>)=>{
     const owner=currentUser.current;setSettings(old=>({...old,...patch}));
@@ -156,48 +168,60 @@ export default function App() {
   const toggleFavorite=async(item:Item,kind='favorite')=>{try{const active=!(kind==='favorite'?item.favorite:item.watchlist);await api('/items/'+item.id+'/favorite',{kind,active},'PUT');const patch={...item,[kind==='favorite'?'favorite':'watchlist']:active};setItems(all=>all.map(i=>i.id===item.id?patch:i));if(detail?.id===item.id)setDetail(patch);message(active?'Dodano do listy.':'Usunięto z listy.');}catch(e){message((e as Error).message);}};
   const openItem=async(item:Item,resume=false)=>{flushPlaylistPosition();playlistRun.current++;setPlaylistContext(null);setPlayerFullscreen(false);setSourcePicker(false);playerPosition.current=0;const owner=currentUser.current;const sequence=++detailRequest.current;++checkRequest.current;activeSelection.current={itemId:item.id,episodeURL:''};requestedPlayback.current=null;autoNext.current=false;manualHost.current='';setPreferManualHost(false);failedLinks.current.clear();fallbackAttempt.current='';setEpisodesExpanded(true);jumpToSources.current=false;setDetail(item);setEpisode(undefined);setCheck(null);setCheckId('');setVersion('all');setDetailBusy(true);try{const result=withLocalProgress(await api<Item>('/items/'+item.id));if(currentUser.current!==owner||sequence!==detailRequest.current)return;setDetail(result);const target=resumeEpisode(result);activeSelection.current={itemId:item.id,episodeURL:target?.url||''};setEpisode(target);setSeason(target?.season||1);const cached=await api<Playable[]>('/items/'+item.id+'/ready'+(target?'?episode='+encodeURIComponent(target.url):'')).catch(()=>[]);if(currentUser.current!==owner||sequence!==detailRequest.current||activeSelection.current.episodeURL!==(target?.url||''))return;if(cached.length){const prioritized=orderPlayable(cached,settings.preferredVersion,settings.preferredHosts);setCheck({id:'',itemId:item.id,episodeURL:target?.url||'',status:'done',checked:cached.length,total:cached.length,ready:prioritized});if(resume)setPlayer({item:result,episode:target,source:prioritized[0]});}else if(result.kind!=='series'&&!result.url.startsWith('device:')&&!isPortalSource(sources.find(s=>s.id===result.sourceId)?.type))void startCheck(result,undefined,undefined,false,true);}catch(e){const err=e as ApiError;if(err.status===429)setCheck({id:'',status:'blocked',checked:0,total:0,ready:[],lastError:err.message,retryAfter:err.retryAfter});message(err.message);}finally{if(currentUser.current===owner&&sequence===detailRequest.current)setDetailBusy(false);}};
   const queuePlaylistProgress=(playlistId:string,entryId:string,patch:{position:number;completed?:boolean})=>{
-    const owner=currentUser.current;
-    return queuePlaylistWrite(playlistId,async()=>{
-      if(owner!==currentUser.current)return;
-      const updated=await api<Playlist>('/playlists/'+playlistId+'/entries/'+entryId+'/progress',patch,'PATCH');
-      const latest=playlistRef.current;
-      if(owner===currentUser.current&&latest?.id===playlistId&&updated.revision>latest.revision){
-        setPlaylistContext({...latest,revision:updated.revision});
-      }
-    }).catch(e=>{if(owner===currentUser.current)message('Nie zapisano postępu playlisty: '+(e as Error).message);});
+    const p=playlistRef.current;
+    if(p?.id!==playlistId)return;
+    recordPlaylistPosition(playlistId,entryId,patch.position,patch.completed,p.restartGeneration??0);
   };
   const rememberPlaylistPosition=(playlistId:string,entryId:string,position:number,force=false)=>{
-    if(!Number.isFinite(position)||position<0)return;
+    if(!Number.isFinite(position)||position<=0)return;
     const p=playlistRef.current;if(!p||p.id!==playlistId||p.cursorId!==entryId)return;
     if(p.entries.find(e=>e.id===entryId)?.completed)return;
     const key=playlistId+':'+entryId,time=Date.now();
     if(playlistLastSave.current.key!==key)playlistLastSave.current={key,at:0};
-    if(!force&&time-playlistLastSave.current.at<12000)return;
+    if(!force&&time-playlistLastSave.current.at<8000)return;
     playlistLastSave.current.at=time;
     void queuePlaylistProgress(playlistId,entryId,{position});
     setPlaylistContext({...p,entries:p.entries.map(e=>e.id===entryId?{...e,playbackPosition:position}:e)});
   };
   const flushPlaylistPosition=()=>{const p=playlistRef.current;if(p?.cursorId)rememberPlaylistPosition(p.id,p.cursorId,playerPosition.current,true);};
+  useEffect(()=>{
+    const snapshot=()=>{
+      const active=playlistPlayback.current,p=playlistRef.current;
+      if(active&&active.run===playlistRun.current&&p?.id===active.playlistId&&p.cursorId===active.entryId
+        &&playerPosition.current>0&&!p.entries.find(e=>e.id===active.entryId)?.completed)
+        recordPlaylistPosition(p.id,active.entryId,playerPosition.current,undefined,p.restartGeneration??0);
+    };
+    const onHidden=()=>{if(document.hidden)snapshot();};
+    window.addEventListener('pagehide',snapshot);
+    document.addEventListener('visibilitychange',onHidden);
+    return()=>{window.removeEventListener('pagehide',snapshot);document.removeEventListener('visibilitychange',onHidden);};
+  },[]);
   const playPlaylist=async(p:Playlist,entry:PlaylistEntry,queue?:QueueState,restart=false)=>{
-    if(entry.needsStargateLink){message('Filman nie udostępnił pozycji „'+entry.label+'”. Otwórz playlistę i ponów automatyczne powiązanie.');return;}
+    p=withLocalPlaylist(p);
+    entry=p.entries.find(item=>item.id===entry.id)??entry;
+    if(entry.needsStargateLink){message(entry.unavailableReason||'Filman nie udostępnił pozycji „'+entry.label+'”. Otwórz playlistę i ponów automatyczne powiązanie.');return;}
     if(!entry.media?.id&&!restart){message('Pozycja nie jest powiązana z katalogiem. Przypisz tytuł w edytorze playlist.');return;}
     setPlaylistQueueOpen(false);
     if(playlistRef.current?.cursorId!==entry.id||playlistRef.current?.id!==p.id||restart)flushPlaylistPosition();
+    playlistPlayback.current=null;
+    setPlaylistFinished(false);
     const owner=currentUser.current,run=++playlistRun.current,sequence=++detailRequest.current;
     ++checkRequest.current;
     if(checkId)void api('/checks/'+checkId+'/cancel',{}).catch(()=>{});
     requestedPlayback.current=null;autoNext.current=false;activeSelection.current={itemId:'',episodeURL:''};
     setCheck(null);setCheckId('');setCheckBusy(false);setLinks([]);setLinksBusy(false);
-    setSourcePicker(false);setPlayerDetailsOpen(false);setPlayerFullscreen(false);setPlayer(null);setDetail(null);setEpisode(undefined);setDetailBusy(true);playerPosition.current=0;
+    setSourcePicker(false);setPlayerDetailsOpen(false);setDetailBusy(true);
     failedLinks.current.clear();fallbackAttempt.current='';manualHost.current='';setPreferManualHost(false);
     try{
       if(restart){
+        discardPlaylistJournal(p.id);
         const restarted=await queuePlaylistWrite(p.id,async()=>{
           if(owner!==currentUser.current||run!==playlistRun.current)return null;
           return api<Playlist>('/playlists/'+p.id+'/restart',{});
         });
         if(!restarted)return;
         p=restarted;
+        syncPlaylistJournalStamps(p);
         entry=p.entries.find(e=>e.id===entry.id)||entry;
         playlistLastSave.current={key:'',at:0};
       }
@@ -205,34 +229,48 @@ export default function App() {
       if(!entry.media?.id){setPlaylistContext(p);message('Playlista została wyzerowana. Powiąż pierwszą pozycję z katalogiem, aby ją odtworzyć.');return;}
       const item=withLocalProgress(await api<Item>('/items/'+entry.media.id));
       if(owner!==currentUser.current||run!==playlistRun.current||sequence!==detailRequest.current)return;
+      const stargatePages:Record<string,string>={
+        SG1:'/s/1942/gwiezdne-wrota-stargate-sg-1',
+        SGA:'/s/1963/gwiezdne-wrota-atlantyda-stargate-atlantis',
+        SGU:'/s/1977/gwiezdne-wrota-wszechswiat-stargate-universe',
+        ORIGINS:'/s/1679/gwiezdne-wrota-poczatek-stargate-origins',
+      };
+      const seriesCode=entry.metadata?.series_code;
+      const canonical=typeof seriesCode==='string'&&Object.hasOwn(stargatePages,seriesCode)
+        ?stargatePages[seriesCode]:undefined;
+      if(canonical&&(item.kind!=='series'||new URL(item.url).pathname.replace(/\/$/,'')!==canonical))
+        throw new Error('Nieprawidłowa strona źródłowa serialu Stargate.');
       const target=item.kind==='series'
-        ?item.episodes?.find(ep=>ep.url===entry.episodeUrl)
-          ??(!entry.episodeUrl||entry.needsStargateLink!==undefined
+        ?item.episodes?.find(ep=>ep.url===entry.episodeUrl
+          &&(!canonical||ep.season===entry.season&&ep.number===entry.episode))
+          ??(!entry.episodeUrl&&!canonical
             ?item.episodes?.find(ep=>ep.season===entry.season&&ep.number===entry.episode)
             :undefined)
         :undefined;
+      if(seriesCode==='SGA'&&entry.season===1&&entry.episode===9)
+        throw new Error('Atlantyda S01E09 pozostaje niedostępna do czasu potwierdzenia prawidłowego nagrania.');
       if(item.kind==='series'&&!target)throw new Error('Nie znaleziono dokładnego odcinka '+entry.label+'. Powiąż go ponownie w playliście.');
       if(item.kind!=='series'&&entry.episodeUrl)throw new Error('Pozycja wskazuje odcinek, ale w katalogu jest film.');
       const state=queue||(p.cursorId===entry.id?{cursorId:p.cursorId,shuffleRemaining:p.shuffleRemaining,shuffleHistory:p.shuffleHistory}:selectPlaylistEntry(p,entry.id)),updated={...p,...state};
       const resume=restart||entry.completed?0:Math.max(0,entry.playbackPosition||0);
+      playerPosition.current=resume;
+      if(!playlistRef.current||playlistRef.current.id!==p.id)setPlayerFullscreen(!!window.CinemaNative||!!document.fullscreenElement);
+      playlistPlayback.current={playlistId:p.id,entryId:entry.id,run};
       setPlaylistContext(updated);
+      recordPlaylistCursor(p.id,state,p.restartGeneration??0);
       activeSelection.current={itemId:item.id,episodeURL:target?.url||''};
       setDetail(item);setEpisode(target);setSeason(target?.season||1);setVersion('all');
       setPlayer({item,episode:target,pending:true,position:resume});autoNext.current=true;
-      void queuePlaylistWrite(p.id,async()=>{
-        if(owner!==currentUser.current||run!==playlistRun.current)return;
-        await api<Playlist>('/playlists/'+p.id+'/playback',state,'PATCH');
-      }).catch(e=>{if(owner===currentUser.current)message('Nie zapisano miejsca playlisty: '+e.message);});
       const cached=await api<Playable[]>('/items/'+item.id+'/ready'+(target?'?episode='+encodeURIComponent(target.url):'')).catch(()=>[]);
       if(run!==playlistRun.current||owner!==currentUser.current)return;
       if(cached.length){const ready=orderPlayable(cached,settings.preferredVersion,settings.preferredHosts);autoNext.current=false;setCheck({id:'',itemId:item.id,episodeURL:target?.url||'',status:'done',checked:ready.length,total:ready.length,ready});setPlayer({item,episode:target,source:ready[0],position:resume});}
       else if(!item.url.startsWith('device:')&&!isPortalSource(sources.find(s=>s.id===item.sourceId)?.type)){void startCheck(item,target,undefined,true,true);}
       else if(item.url.startsWith('device:'))message('Aby odtworzyć plik lokalny, wybierz go na tym urządzeniu.');
-    }catch(e){if(run===playlistRun.current&&owner===currentUser.current){setPlayer(null);setPlaylistContext(null);message((e as Error).message);}}
+    }catch(e){if(run===playlistRun.current&&owner===currentUser.current){setPlaylistContext(p);message('Odtwarzanie przerwane. Możesz kontynuować playlistę: '+(e as Error).message);}}
     finally{if(run===playlistRun.current&&owner===currentUser.current)setDetailBusy(false);}
   };
-  const movePlaylist=(direction:1|-1)=>{const p=playlistRef.current;if(!p)return;const state=advancePlaylist(p,direction);if(!state){message(direction===1?'Koniec playlisty.':'Początek playlisty.');return;}const entry=p.entries.find(e=>e.id===state.cursorId);if(entry)void playPlaylist(p,entry,state);};
-  const completePlaylistEntry=(id:string,entryId:string)=>{const p=playlistRef.current;if(!p||p.id!==id||p.cursorId!==entryId)return;setPlaylistContext({...p,entries:p.entries.map(e=>e.id===entryId?{...e,completed:true,playbackPosition:0}:e)});void queuePlaylistProgress(id,entryId,{completed:true,position:0});};
+  const movePlaylist=(direction:1|-1)=>{const p=playlistRef.current;if(!p)return;const state=advancePlaylist(p,direction);if(!state){if(direction===1)setPlaylistFinished(true);else message('Początek playlisty.');return;}const entry=p.entries.find(e=>e.id===state.cursorId);if(entry)void playPlaylist(p,entry,state);};
+  const completePlaylistEntry=(id:string,entryId:string)=>{const p=playlistRef.current;if(!p||p.id!==id||p.cursorId!==entryId)return;const entries=p.entries.map(e=>e.id===entryId?{...e,completed:true,playbackPosition:0}:e);setPlaylistContext({...p,entries,completedCount:entries.filter(e=>e.completed).length});queuePlaylistProgress(id,entryId,{completed:true,position:0});};
   const setPlaylistMode=(mode:Playlist['mode'])=>{
     const initial=playlistRef.current,owner=currentUser.current;
     if(!initial)return;
@@ -264,6 +302,8 @@ export default function App() {
     const wasPlaylist=!!playlistRef.current;
     flushPlaylistPosition();
     playlistRun.current++;
+    playlistPlayback.current=null;
+    setPlaylistFinished(false);
     setPlaylistContext(null);
     if(player?.source)setResumePlayer({...player,position:playerPosition.current});
     autoNext.current=false;
@@ -314,6 +354,12 @@ export default function App() {
   const playlistNextLabel=activePlaylist?(playlistNext
     ?'Następny: '+[playlistNext.media?.title||playlistNext.metadata.series_title,playlistNext.season===null?'':'S'+String(playlistNext.season).padStart(2,'0')+'E'+String(playlistNext.episode).padStart(2,'0'),playlistNext.label].filter(Boolean).join(' · ')
     :activePlaylist.mode==='once'?'Koniec playlisty':'Następny: nowy cykl losowy'):undefined;
+  // Bind playback callbacks to the particular playlist run. An ended event
+  // queued for an old source must not complete or advance a newer cursor.
+  const playbackRun=playlistPlayback.current;
+  const validPlaybackRun=()=>!!playbackRun&&playlistPlayback.current?.run===playbackRun.run
+    &&playlistPlayback.current?.entryId===playbackRun.entryId
+    &&playlistRef.current?.id===playbackRun.playlistId&&playlistRef.current?.cursorId===playbackRun.entryId;
   const submitSearch=(text:string)=>{setAppliedQuery(text.trim());setPage(1);if(['downloads','favorite','continue','watchlist'].includes(view))setView('all');};
   const navigateSource=(id:string)=>{setSelected([id]);changeView('all');};
   return <div className="app-shell" onClickCapture={sound}><aside className="sidebar"><button className="brand" onClick={()=>changeView('all')}><Film/> CINEMA HUB</button><nav aria-label="Biblioteka">{[['all','Biblioteka',Home],['movies','Filmy',Film],['series','Seriale',Tv],['favorite','Ulubione',Heart],['continue','Kontynuuj',Clock],['watchlist','Chcę obejrzeć',Bookmark],['downloads','Pobrane',Download],['playlists','Playlisty',ListVideo]].map(([id,label,Icon])=><button key={String(id)} className={view===id?'active':''} onClick={()=>changeView(String(id))}>{typeof Icon!=='string'?<Icon size={20}/>:null}<span>{String(label)}</span></button>)}</nav><div className="sidebar-sources"><span>ŹRÓDŁA MEDIÓW</span>{activeSources.map(s=><button key={s.id} className={selected.length===1&&selected[0]===s.id?'selected':''} onClick={()=>navigateSource(s.id)}><span className="source-dot"/>{s.name}</button>)}</div><div className="sidebar-bottom"><button className={view==='settings'?'active':''} onClick={()=>changeView('settings')}><Gear size={20}/>Ustawienia</button><div className="account"><span className="avatar">{user.username.slice(0,1).toUpperCase()}</span><span>{user.username}</span><button className="icon-button" aria-label="Wyloguj" onClick={async()=>{await api('/auth/logout',{});setUser(null);setSettings(initialSettings);setSources([]);}}><LogOut size={17}/></button></div></div></aside>
@@ -352,7 +398,7 @@ export default function App() {
     </section></>}</Modal>:null}
   {addToPlaylist?<Modal title="Dodaj do playlisty" onClose={()=>setAddToPlaylist(null)}><div className="settings-form"><p><strong>{addToPlaylist.item.title}</strong>{addToPlaylist.episode?' · S'+addToPlaylist.episode.season+'E'+addToPlaylist.episode.number+' · '+addToPlaylist.episode.title:''}</p><label>Playlista<select value={playlistChoice} onChange={e=>setPlaylistChoice(e.target.value)}><option value="new">+ Utwórz nową playlistę</option>{playlistChoices.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>{playlistChoice==='new'?<label>Nazwa nowej playlisty<input autoFocus maxLength={120} value={newPlaylistName} onChange={e=>setNewPlaylistName(e.target.value)}/></label>:null}<div className="form-actions"><button className="button primary" disabled={addingToPlaylist} onClick={()=>void saveToPlaylist()}><Plus size={16}/>{addingToPlaylist?'Dodaję…':'Dodaj pozycję'}</button><button className="button secondary" onClick={()=>setAddToPlaylist(null)}>Anuluj</button></div></div></Modal>:null}
   {saveSource?<Modal portalTarget={player&&!playerDetailsOpen?document.querySelector('.player-overlay'):null} title={episode?'Zapisz odcinek':'Zapisz film'} onClose={()=>setSaveSource(null)}><div className="save-dialog"><Download size={34} className="accent"/><h3>{detail?.title||player?.item.title}</h3>{episode?<p>Sezon {episode.season} · Odcinek {episode.number} · {episode.title}</p>:null}<p>{saveSource.version} · {saveSource.quality}</p><label>Miejsce zapisu<select value={saveDestination} onChange={e=>setSaveDestination(e.target.value)}><option value="device">To urządzenie — lokalny dysk / wybrany folder przeglądarki</option>{destinations.map(d=><option key={d.id} value={d.id}>{d.name} ({d.type.toUpperCase()})</option>)}</select></label><p className="form-note">Nazwa zostanie uzupełniona z prawdziwego tytułu, sezonu, odcinka i jakości. Pobieranie jest ręczne. Kontener nie zapisuje filmu.</p><button className="button primary" onClick={()=>void saveDownload()}><Download size={17}/>Zapisz i dodaj do kolejki</button></div></Modal>:null}
-  {player?<Suspense fallback={<Busy/>}><Player state={player} onClose={closePlayerView} onChooseSource={openSourcePicker} onShowDetails={()=>setPlayerDetailsOpen(true)} detailsOpen={playerDetailsOpen} resumeRequest={resumeRequest} fullscreen={playerFullscreen} onFullscreenChange={setPlayerFullscreen} panelOpen={playerDetailsOpen||sourcePicker||!!saveSource||playlistQueueOpen} panelMode={playlistQueueOpen?'playlist':sourcePicker?'sources':playerDetailsOpen?'details':saveSource?'save':'none'} onPosition={value=>{playerPosition.current=value;}} imageProfile={settings.imageProfile??'natural'} videoEffect={settings.videoEffect??'none'} volumeBoost={settings.volumeBoost??100} audioMode={settings.audioMode??'manual'} normalizerTargetDb={settings.normalizerTargetDb??-21} onPresentationChange={updatePresentation} pendingBusy={checkBusy||linksBusy} pendingMessage={check?.status==='cancelled'?'Automat zatrzymany. Wybierz hosting ręcznie.':check?.lastError||check?.phase} retryRemaining={remaining} blockUnknown={check?.status==='blocked'&&!check.retryAfter} onStopCheck={stopCheck} onRetry={restartPlayback} autoAdvance={activePlaylist?true:settings.autoplay} onToggleAutoplay={updateAutoplay} playlistLabel={activePlaylist?activePlaylist.name+' · '+(activePlaylist.entries.findIndex(e=>e.id===activePlaylist.cursorId)+1)+' / '+activePlaylist.entries.length+' · '+({once:'Po kolei',repeat:'W pętli',shuffle:'Losowo'}[activePlaylist.mode]):undefined} playlistNextLabel={playlistNextLabel} playlistMode={activePlaylist?.mode} onChangePlaylistMode={setPlaylistMode} onCompleted={activePlaylist?.cursorId?()=>completePlaylistEntry(activePlaylist.id,activePlaylist.cursorId!):undefined} onOpenPlaylist={activePlaylist?()=>{setSourcePicker(false);setSaveSource(null);setPlaylistQueueOpen(true);}:undefined} preferManualHost={preferManualHost} onTogglePreferManualHost={setPreferManualHost} onPrevious={activePlaylist?(activePlaylist.mode==='shuffle'?activePlaylist.shuffleHistory.length>0:activePlaylist.mode==='repeat'?activePlaylist.entries.length>0:activePlaylist.entries.findIndex(e=>e.id===activePlaylist.cursorId)>0)?()=>movePlaylist(-1):undefined:player.episode&&detail?.episodes?.some(e=>e.season<player.episode!.season||e.season===player.episode!.season&&e.number<player.episode!.number)?previousEpisode:undefined} onNext={activePlaylist?(activePlaylist.mode!=='once'?activePlaylist.entries.length>0:activePlaylist.entries.findIndex(e=>e.id===activePlaylist.cursorId)<activePlaylist.entries.length-1)?()=>movePlaylist(1):undefined:player.episode&&detail?.episodes?.some(e=>e.season>player.episode!.season||e.season===player.episode!.season&&e.number>player.episode!.number)?nextEpisode:undefined} onError={fallback} onSave={player.source?()=>{setSaveSource(player.source!);setSaveDestination(settings.defaultDestination);}:undefined}/></Suspense>:null}
+  {player?<Suspense fallback={<Busy/>}><Player key={playbackRun?'playlist:'+playbackRun.run+':'+playbackRun.entryId:player.source?.playbackId||player.localURL||'pending'} state={player} onClose={closePlayerView} onChooseSource={openSourcePicker} onShowDetails={()=>setPlayerDetailsOpen(true)} detailsOpen={playerDetailsOpen} resumeRequest={resumeRequest} fullscreen={playerFullscreen} onFullscreenChange={setPlayerFullscreen} panelOpen={playerDetailsOpen||sourcePicker||!!saveSource||playlistQueueOpen} panelMode={playlistQueueOpen?'playlist':sourcePicker?'sources':playerDetailsOpen?'details':saveSource?'save':'none'} onPosition={(value,playbackId,force)=>{if(!Number.isFinite(value)||value<=0||player.pending||player.source?.playbackId!==playbackId)return;const active=playlistPlayback.current;if(active){if(!validPlaybackRun()||active.run!==playlistRun.current||playlistRef.current?.id!==active.playlistId||playlistRef.current.cursorId!==active.entryId)return;playerPosition.current=value;rememberPlaylistPosition(active.playlistId,active.entryId,value,force);}else if(!playbackRun)playerPosition.current=value;}} imageProfile={settings.imageProfile??'natural'} videoEffect={settings.videoEffect??'none'} volumeBoost={settings.volumeBoost??100} audioMode={settings.audioMode??'manual'} normalizerTargetDb={settings.normalizerTargetDb??-21} onPresentationChange={updatePresentation} pendingBusy={checkBusy||linksBusy} pendingMessage={check?.status==='cancelled'?'Automat zatrzymany. Wybierz hosting ręcznie.':check?.lastError||check?.phase} retryRemaining={remaining} blockUnknown={check?.status==='blocked'&&!check.retryAfter} onStopCheck={stopCheck} onRetry={restartPlayback} autoAdvance={activePlaylist?true:settings.autoplay} onToggleAutoplay={updateAutoplay} playlistLabel={activePlaylist?activePlaylist.name+' · '+(activePlaylist.entries.findIndex(e=>e.id===activePlaylist.cursorId)+1)+' / '+activePlaylist.entries.length+' · '+({once:'Po kolei',repeat:'W pętli',shuffle:'Losowo'}[activePlaylist.mode]):undefined} playlistNextLabel={playlistNextLabel} playlistMode={activePlaylist?.mode} onChangePlaylistMode={setPlaylistMode} onCompleted={activePlaylist?.cursorId?()=>{if(validPlaybackRun())completePlaylistEntry(activePlaylist.id,activePlaylist.cursorId!);}:undefined} finished={playlistFinished} onFinished={activePlaylist?()=>{if(validPlaybackRun())setPlaylistFinished(true);}:undefined} onReplayPlaylist={activePlaylist?.entries.length?()=>void playPlaylist(activePlaylist,activePlaylist.entries[0],undefined,true):undefined} onOpenPlaylist={activePlaylist?()=>{setSourcePicker(false);setSaveSource(null);setPlaylistQueueOpen(true);}:undefined} preferManualHost={preferManualHost} onTogglePreferManualHost={setPreferManualHost} onPrevious={activePlaylist?(activePlaylist.mode==='shuffle'?activePlaylist.shuffleHistory.length>0:activePlaylist.mode==='repeat'?activePlaylist.entries.length>0:activePlaylist.entries.findIndex(e=>e.id===activePlaylist.cursorId)>0)?()=>{if(validPlaybackRun())movePlaylist(-1);}:undefined:player.episode&&detail?.episodes?.some(e=>e.season<player.episode!.season||e.season===player.episode!.season&&e.number<player.episode!.number)?previousEpisode:undefined} onNext={activePlaylist?(activePlaylist.mode!=='once'?activePlaylist.entries.length>0:activePlaylist.entries.findIndex(e=>e.id===activePlaylist.cursorId)<activePlaylist.entries.length-1)?()=>{if(validPlaybackRun())movePlaylist(1);}:undefined:player.episode&&detail?.episodes?.some(e=>e.season>player.episode!.season||e.season===player.episode!.season&&e.number>player.episode!.number)?nextEpisode:undefined} onError={fallback} onSave={player.source?()=>{setSaveSource(player.source!);setSaveDestination(settings.defaultDestination);}:undefined}/></Suspense>:null}
   {playlistQueueOpen&&activePlaylist&&player?<Suspense fallback={null}>
     <PlaylistQueue playlist={activePlaylist} onClose={()=>setPlaylistQueueOpen(false)}
       onSelect={entry=>{

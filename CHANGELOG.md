@@ -4,6 +4,16 @@
 
 - Dodano gotową playlistę trzech filmów Avatar w kolejności premier, z dopasowaniem tytułów do katalogu użytkownika.
 
+## Serwer i Android TV 1.3.24 – playlisty i weryfikacja katalogu Stargate (wydanie przygotowywane)
+
+- Kontynuacja playlist od ostatniego odcinka i czasu, odporny na utratę połączenia dziennik zapisu, przywracanie po logowaniu i ponownej weryfikacji źródła, panel kolejki z bieżącym odcinkiem, odtwarzanie następnego odcinka oraz nawigacja pilotem Android TV.
+- Weryfikacja tożsamości źródła serialu, numeru sezonu i odcinka, wykrywanie powielonych adresów i identyfikatorów dostawcy, zachowanie powiązań i postępu przy nieprawidłowej synchronizacji.
+- Stargate Atlantis S01E09 „Dom” tymczasowo niedostępny do czasu rzeczywistego potwierdzenia właściwego nagrania; aplikacja nie odtworzy pod nim zgłoszonego obcego filmu.
+- Walidacja tożsamości przed ponownym wykorzystaniem tokenu odtwarzania, pobraniem na urządzenie i eksportem do chmury; odrzucanie nieaktualnych adresów, identyfikatorów hostingu oraz pozycji usuniętych z katalogu. Dotyczy również kolejnych segmentów HLS.
+- Audyt metadanych Stargate SG-1, Atlantis i innych dostępnych wpisów; weryfikacja obrazu i odbiór na fizycznym Android TV pozostają do wykonania. [Opis i ograniczenia](docs/RELEASE-1.3.24.md).
+- APK Android TV 1.3.24 (`versionCode` 16) zbudowane i podpisane lokalnie; testy Java i lint przeszły. Wydanie wspólne nadal oczekuje na testy integracyjne i weryfikację zawartości nagrań.
+- Oddzielny etap obrazu `ci_test` w GitHub Actions uruchamia pełny zestaw testów przed opublikowaniem obrazu, zachowując produkcyjny etap `release` bez narzędzi testowych. Lokalnie 51/51 testów ukierunkowanych przeszło, pełny przebieg 80/136 OK (35 błędów środowiskowych/integracyjnych i 21 pominiętych). Test obrazu CI, fizycznego Android TV oraz wideo nadal wymagany; wydanie nieopublikowane.
+
 ## Kontener 1.3.23 – poprawki odtwarzania playlist
 
 - Poprawki wyboru właściwego nagrania, odcinków łączonych i przewijania podczas odtwarzania playlist. [Opis wydania](docs/RELEASE-1.3.23.md)

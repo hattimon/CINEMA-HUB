@@ -4,7 +4,7 @@ android {
     compileSdk 35
     buildToolsVersion '35.0.0'
     buildFeatures { buildConfig true }
-    defaultConfig { applicationId 'pl.cinemahub.tv'; minSdk 23; targetSdk 34; versionCode 15; versionName '1.3.11'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
+    defaultConfig { applicationId 'pl.cinemahub.tv'; minSdk 23; targetSdk 34; versionCode 16; versionName '1.3.24'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
 }

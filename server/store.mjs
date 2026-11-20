@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomBytes, scryptSync, timingSafeEqual, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
+import { stargateProviderCode, canonicalStargateCode, uniqueStargateEpisodes } from './stargate-identity.mjs';
 
 export const dataDir = resolve(process.env.DATA_DIR || './data');
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -85,7 +86,48 @@ export function deleteSource(id,userId) {
     db.exec('COMMIT');
   }catch(error){db.exec('ROLLBACK');throw error;}
 }
-export function saveItem(sourceId,item) { const id=hashId(sourceId+':'+item.url);const old=db.prepare('SELECT value FROM items WHERE id=?').get(id);const previous=old?JSON.parse(old.value):{};const result={...previous,...item,id,sourceId};for(const key of ['title','poster','description','year','rating','imdb'])if((result[key]===null||result[key]===undefined||result[key]==='')&&previous[key])result[key]=previous[key]; db.prepare('INSERT INTO items VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated=excluded.updated').run(id,sourceId,JSON.stringify(result),now()); return result; }
+export function saveItem(sourceId,item) {
+  const id=hashId(sourceId+':'+item.url);
+  const old=db.prepare('SELECT value FROM items WHERE id=?').get(id),previous=old?JSON.parse(old.value):{};
+  const result={...previous,...item,id,sourceId};
+  for(const field of ['title','poster','description','year','rating','imdb'])
+    if((result[field]===null||result[field]===undefined||result[field]==='')&&previous[field])result[field]=previous[field];
+
+  const source=db.prepare('SELECT type,url FROM sources WHERE id=?').get(sourceId);
+  const canonicalCode=canonicalStargateCode(result.url,source);
+  if(canonicalCode && result.kind!=='series'){
+    // Never let an incorrectly categorized catalog response turn a known
+    // Stargate series into a playable film. Retain old episodes, quarantined.
+    const slots=(previous.episodes??[]).map(e=>e.season+':'+e.number);
+    const blocked=new Set([...(previous.stargateConflicts??[]),...slots]);
+    result.kind='series';
+    result.episodes=previous.episodes??[];
+    result.stargateConflicts=[...blocked];
+    if(previous.title) result.title=previous.title;
+  }
+  const code=stargateProviderCode(result,source);
+  if(code){
+    // A catalog refresh may be incomplete or may reuse an episode ID for an
+    // unrelated upload. Keep the existing stable slot and quarantine conflicts.
+    const oldEpisodes=uniqueStargateEpisodes(code,previous.episodes,source);
+    const freshEpisodes=uniqueStargateEpisodes(code,item.episodes,source);
+    const conflicts=new Set([...(result.stargateConflicts??[]),...(item.episodeConflicts??[]),...oldEpisodes.rejected,...freshEpisodes.rejected]);
+    const bySlot=new Map(oldEpisodes.episodes.map(episode=>[episode.season+':'+episode.number,episode]));
+    for(const episode of freshEpisodes.episodes){
+      const slot=episode.season+':'+episode.number,oldEntry=bySlot.get(slot);
+      if(!oldEntry)bySlot.set(slot,episode);
+      else if(oldEntry.url===episode.url)bySlot.set(slot,episode);
+      else conflicts.add(slot);
+    }
+    const merged=uniqueStargateEpisodes(code,[...bySlot.values()],source);
+    merged.rejected.forEach(slot=>conflicts.add(slot));
+    result.episodes=merged.episodes.sort((a,b)=>a.season-b.season||a.number-b.number);
+    result.stargateConflicts=[...conflicts].sort();
+  }
+  db.prepare('INSERT INTO items VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,updated=excluded.updated')
+    .run(id,sourceId,JSON.stringify(result),now());
+  return result;
+}
 export function getItem(id,userId) { const row=db.prepare('SELECT i.* FROM items i JOIN sources s ON s.id=i.source_id WHERE i.id=? AND s.user_id=?').get(id,userId); if(!row) throw Object.assign(new Error('Nie znaleziono pozycji.'),{status:404}); return JSON.parse(row.value); }
 export function episodeForProgress(item,progress) {
   return item.episodes?.find(episode=>episode.url===progress.episode)
@@ -108,6 +150,9 @@ export function saveProgress(item,userId,value) {
   const previous=getProgress(item,userId).find(progress=>progress.episode===saved.episode);
   // Replaying an offline snapshot must not replace newer progress from another device.
   if(previous&&previous.updatedAt>updatedAt)return;
+  // A late nonterminal player callback can arrive even with a newer timestamp
+  // (e.g. pagehide after ended). Completion may only be cleared explicitly.
+  if(previous?.completed&&!saved.completed)return;
   db.prepare('INSERT INTO progress VALUES(?,?,?,?,?) ON CONFLICT(user_id,item_id,episode) DO UPDATE SET value=excluded.value,updated=excluded.updated WHERE excluded.updated>=progress.updated').run(userId,item.id,saved.episode,JSON.stringify(saved),updatedAt);
 }
 export function decorateItem(item,userId) { const favorites=db.prepare('SELECT kind FROM favorites WHERE user_id=? AND item_id=?').all(userId,item.id); return {...item,favorite:favorites.some(f=>f.kind==='favorite'),watchlist:favorites.some(f=>f.kind==='watchlist'),progress:getProgress(item,userId)[0]||null}; }

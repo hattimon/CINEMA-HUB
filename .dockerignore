@@ -4,10 +4,9 @@ data
 .git
 dist
 design
-tests
 *.log
 .private
 .toolchain
 android
 releases/*
-!releases/CinemaHub-AndroidTV-v1.3.11.apk
+!releases/CinemaHub-AndroidTV-v1.3.24.apk

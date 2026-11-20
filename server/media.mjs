@@ -3,8 +3,9 @@ import { spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { safeRequest,readBounded,networkURL,uploadStream,basicHeaders } from './net.mjs';
 import { configuredRemote,safePath,capture } from './rclone.mjs';
-import { db,getSource,getDestination,uid,now } from './store.mjs';
+import { db,getItem,getSource,getDestination,uid,now } from './store.mjs';
 import { resolveLink } from './adapters.mjs';
+import { assertPlaybackIdentity } from './playback-identity.mjs';
 import { abortable } from './playback-work.mjs';
 import { setTimeout as pause } from 'node:timers/promises';
 
@@ -98,22 +99,38 @@ async function relayRemote(candidate,req,res) {
   const size=candidate.bytes;let offset=0,count=size;const match=/^bytes=(\d+)-(\d*)$/.exec(req.headers.range||'');if(match&&size){offset=Number(match[1]);const end=match[2]?Math.min(Number(match[2]),size-1):size-1;if(offset>=size||end<offset){res.status(416).set('Content-Range',`bytes */${size}`).end();return;}count=end-offset+1;res.status(206).set('Content-Range',`bytes ${offset}-${end}/${size}`);}
   res.type(/\.webm$/i.test(path)?'video/webm':'video/mp4');if(size)res.set('Content-Length',String(count)).set('Accept-Ranges','bytes');const args=['cat',remote.base+'/'+path];if(offset)args.push('--offset',String(offset));if(count)args.push('--count',String(count));const child=spawn('rclone',args,{env:remote.env,windowsHide:true,stdio:['ignore','pipe','pipe']});child.stderr.resume();res.on('close',()=>child.kill());child.on('error',()=>res.destroy());await pipeline(child.stdout,res).catch(()=>child.kill());
 }
-export function serveInternal(req,res) {const entry=internalExports.get(req.params.token);if(!entry||entry.expires<now()||!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress))return res.status(404).end();return relay(entry.candidate,req,res,{prefix:`http://127.0.0.1:${process.env.PORT||8090}/internal/export/${req.params.token}`,assetId:req.params.asset});}
+export function serveInternal(req,res) {const entry=internalExports.get(req.params.token);if(!entry||entry.expires<now()||!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress))return res.status(404).end();if(entry.exportJob)assertPlaybackIdentity(entry.candidate,entry.exportJob.userId,entry.exportJob);return relay(entry.candidate,req,res,{prefix:`http://127.0.0.1:${process.env.PORT||8090}/internal/export/${req.params.token}`,assetId:req.params.asset});}
 export function exportProcess(candidate) {
+  // Probe-only candidates are created by probeMedia(), not exportProcess().
+  assertPlaybackIdentity(candidate,candidate.userId);
   const token=uid();internalExports.set(token,{candidate,expires:now()+2*60*60*1000});
+  internalExports.get(token).exportJob={userId:candidate.userId,itemId:candidate.itemId,sourceId:candidate.sourceId,episode:candidate.episode};
   // All media is piped. There is deliberately no local output path.
   const input=`http://127.0.0.1:${process.env.PORT||8090}/internal/export/${token}/media`;
   const child=spawn('ffmpeg',['-hide_banner','-loglevel','error','-nostdin','-protocol_whitelist','http,tcp,crypto',...(candidate.kind==='hls'?['-allowed_extensions','ALL']:[]),'-analyzeduration','30000000','-probesize','32000000','-i',input,'-map','0:v:0','-map','0:a:0?','-c','copy',...(candidate.kind==='hls'&&(candidate.audioCodec||'aac')==='aac'?['-bsf:a','aac_adtstoasc']:[]),'-movflags','frag_keyframe+empty_moov','-f','mp4','pipe:1'],{windowsHide:true,stdio:['ignore','pipe','pipe']});child.stderr.resume();child.once('exit',()=>internalExports.delete(token));return child;
 }
 function successfulExit(child) {return new Promise((resolve,reject)=>{child.once('error',()=>reject(new Error('Narzędzie zapisu jest niedostępne.')));child.once('close',code=>code===0?resolve():reject(new Error('Zapis wideo został przerwany.')));});}
 export async function exportToDevice(candidate,req,res,filename) {
+  assertPlaybackIdentity(candidate,candidate.userId);
   res.set('Content-Disposition',`attachment; filename="video.mp4"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   if(candidate.kind!=='hls')return relay(candidate,req,res,{prefix:`/api/playback/${candidate.id}`});
   res.type('video/mp4');const child=exportProcess(candidate),exit=successfulExit(child);res.on('close',()=>{if(!res.writableFinished)child.kill();});const timer=setTimeout(()=>child.kill(),2*60*60*1000);try{await Promise.all([pipeline(child.stdout,res,{end:false}),exit]);res.end();}catch(error){child.kill();res.destroy();throw error;}finally{clearTimeout(timer);}
 }
 export function downloadFor(id,userId) {const row=db.prepare('SELECT * FROM downloads WHERE id=? AND user_id=?').get(id,userId);if(!row)throw Object.assign(new Error('Nie znaleziono pobierania.'),{status:404});return {...JSON.parse(row.value),id:row.id,status:row.status,updated:row.updated};}
 export function updateDownload(job,status,extra={}) {const value={...job,...extra};delete value.status;delete value.updated;db.prepare('UPDATE downloads SET value=?,status=?,updated=? WHERE id=? AND user_id=?').run(JSON.stringify(value),status,now(),job.id,job.userId);return {...value,status};}
-export async function freshPlayback(job) {try{return playbackFor(job.playbackId,job.userId);}catch{}const source=getSource(job.sourceId,job.userId);if(['filman','vider'].includes(source.type))throw Object.assign(new Error('Sesja hostingu wygasła. Sprawdź wybrany hosting ręcznie i ponownie dodaj zapis do kolejki.'),{status:410});const candidate=await resolveLink(source,job.pageURL,job.link);const id=rememberPlayback(job.userId,candidate,{sourceId:job.sourceId});return playbackFor(id,job.userId);}
+export async function freshPlayback(job) {
+  // Reject queued jobs even if an old hosting token has not expired yet.
+  // The persisted episode URL is a snapshot of the original selection.
+  if(job.itemId)assertPlaybackIdentity({...job},job.userId,job);
+  let cached;
+  try{cached=playbackFor(job.playbackId,job.userId);}catch(error){if(error.status!==410)throw error;}
+  if(cached)return assertPlaybackIdentity(cached,job.userId,job);
+  const source=getSource(job.sourceId,job.userId);
+  if(['filman','vider'].includes(source.type))throw Object.assign(new Error('Sesja hostingu wygasła. Sprawdź wybrany hosting ręcznie i ponownie dodaj zapis do kolejki.'),{status:410});
+  const candidate=await resolveLink(source,job.pageURL,job.link);
+  const id=rememberPlayback(job.userId,candidate,{sourceId:job.sourceId,itemId:job.itemId,pageURL:job.pageURL,link:job.link,episode:job.episode});
+  try{return assertPlaybackIdentity(playbackFor(id,job.userId),job.userId,job);}catch(error){playbacks.delete(id);throw error;}
+}
 let running=false;export const activeDownloads=new Map();const active=activeDownloads;
 export function cancelDownload(id,userId) {const job=downloadFor(id,userId);active.get(id)?.();return updateDownload(job,'cancelled');}
 export async function cloudQueue() {
@@ -145,7 +162,7 @@ export async function cloudQueue() {
         await Promise.all([pipeline(producer.stdout,uploader.stdin),producerExit,successfulExit(uploader)]);
       }
       if(downloadActive(job))updateDownload(job,'ready',{bytes,remotePath:filename});
-    }catch(error) {controller.abort();producer?.kill();uploader?.kill();if(downloadActive(job)){const attempts=(job.attempts||0)+1;updateDownload(job,error.status===410?'paused':attempts<3?'retry':'failed',{attempts,retryAfter:now()+attempts*30000,error:error.status===410?error.message:'Pobieranie lub zapis strumieniowy zostało przerwane. Sprawdź źródło i magazyn.'});}}finally{clearTimeout(timeout);active.delete(job.id);}
+    }catch(error) {controller.abort();producer?.kill();uploader?.kill();if(downloadActive(job)){const attempts=(job.attempts||0)+1;const invalid=[409,410].includes(error.status);updateDownload(job,invalid?'paused':attempts<3?'retry':'failed',{attempts,retryAfter:now()+attempts*30000,error:invalid?error.message:'Pobieranie lub zapis strumieniowy zostało przerwane. Sprawdź źródło i magazyn.'});}}finally{clearTimeout(timeout);active.delete(job.id);}
   }}finally{running=false;}
 }
 db.prepare("UPDATE downloads SET status='retry' WHERE status='downloading' AND value NOT LIKE '%\"destination\":\"device\"%'").run();

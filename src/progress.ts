@@ -3,6 +3,7 @@ import type { Episode,Item,Progress } from './types';
 
 type Entry={itemId:string;progress:Progress;pending:boolean};
 let owner='',entries:Entry[]=[],generation=0;
+let lastSavedAt=0;
 let running:Promise<void>|undefined,controller:AbortController|undefined;
 const key=(user:string)=>'cinema-hub.progress.v1.'+user;
 const sameEpisode=(a:Progress,b:Progress|Episode)=>a.episode===('url' in b?b.url:b.episode)
@@ -12,7 +13,8 @@ const persist=()=>{try{localStorage.setItem(key(owner),JSON.stringify(entries));
 export function latestProgress(itemId:string,server?:Progress|null,episode?:Episode):Progress|undefined {
   const local=entries.filter(entry=>entry.itemId===itemId&&(!episode||sameEpisode(entry.progress,episode)))
     .sort((a,b)=>(b.progress.updatedAt||0)-(a.progress.updatedAt||0))[0]?.progress;
-  return local&&(!server||(local.updatedAt||0)>(server.updatedAt||0))?local:server||undefined;
+  return local&&(!server||(local.updatedAt||0)>(server.updatedAt||0)
+    ||(local.updatedAt||0)===(server.updatedAt||0)&&local.completed&&!server.completed)?local:server||undefined;
 }
 export function withLocalProgress(item:Item):Item {
   return {...item,progress:latestProgress(item.id,item.progress)||null};
@@ -43,7 +45,11 @@ export function flushProgress(keepalive=false):Promise<void> {
 }
 export function saveProgress(itemId:string,progress:Progress):Promise<void> {
   if(!owner||!Number.isFinite(progress.position)||!Number.isFinite(progress.duration)||progress.duration<=0)return Promise.resolve();
-  const saved={...progress,updatedAt:Date.now()};
+  const previous=entries.find(entry=>entry.itemId===itemId&&sameEpisode(entry.progress,progress))?.progress;
+  // Completion is terminal for a watched episode. A delayed pause, seek or
+  // teardown event must not make the same episode unfinished again.
+  if(previous?.completed&&!progress.completed)return Promise.resolve();
+  const saved={...progress,updatedAt:lastSavedAt=Math.max(Date.now(),lastSavedAt+1,(previous?.updatedAt||0)+1)};
   entries=entries.filter(entry=>entry.itemId!==itemId||!sameEpisode(entry.progress,saved));
   entries.push({itemId,progress:saved,pending:true});
   const pending=entries.filter(entry=>entry.pending),synced=entries.filter(entry=>!entry.pending);
@@ -51,7 +57,7 @@ export function saveProgress(itemId:string,progress:Progress):Promise<void> {
   return flushProgress();
 }
 export function startProgressSync(userId:string):()=>void {
-  generation++;controller?.abort();running=undefined;owner=userId;entries=[];
+  generation++;controller?.abort();running=undefined;owner=userId;entries=[];lastSavedAt=0;
   if(!owner)return()=>{};
   try{
     const saved:unknown=JSON.parse(localStorage.getItem(key(owner))||'[]');
@@ -59,6 +65,7 @@ export function startProgressSync(userId:string):()=>void {
       &&typeof entry.progress?.episode==='string'&&Number.isFinite(entry.progress.position)&&entry.progress.position>=0
       &&Number.isFinite(entry.progress.duration)&&entry.progress.duration>0&&Number.isFinite(entry.progress.updatedAt)
       &&typeof entry.progress.completed==='boolean'&&typeof entry.pending==='boolean');
+    lastSavedAt=Math.max(0,...entries.map(entry=>entry.progress.updatedAt||0));
   }catch{/* Ignore damaged or unavailable browser storage. */}
   const retry=()=>{void flushProgress();},leaving=()=>{void flushProgress(true);};
   window.addEventListener('online',retry);window.addEventListener('pagehide',leaving);

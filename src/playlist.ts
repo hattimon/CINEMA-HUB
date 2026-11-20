@@ -1,19 +1,29 @@
 export type PlaylistMode='once'|'repeat'|'shuffle';
 export type PlaylistEntry={
   id:string;position:number;itemId:string|null;episodeUrl:string|null;
-  season:number|null;episode:number|null;label:string;completed:boolean;playbackPosition:number;
+  season:number|null;episode:number|null;label:string;completed:boolean;playbackPosition:number;progressStamp?:number;
   metadata:Record<string,unknown>;
   media:{id:string;title:string;kind:string;sourceId:string;sourceName?:string;poster?:string}|null;
   needsStargateLink?:boolean;
+  unavailableReason?:string;
 };
 export type Playlist={
   id:string;name:string;description:string;mode:PlaylistMode;revision:number;
   cursorId:string|null;shuffleRemaining:string[];shuffleHistory:string[];
-  itemCount:number;completedCount:number;created:number;updated:number;entries:PlaylistEntry[];
+  itemCount:number;completedCount:number;created:number;updated:number;playbackStamp?:number;restartGeneration?:number;entries:PlaylistEntry[];
 };
-export type PlaylistSummary=Omit<Playlist,'entries'>;
+export type PlaylistSummary=Omit<Playlist,'entries'> & {cursorLabel?:string|null;cursorTime?:number};
 export type StargatePreparation={playlist:Playlist;message?:string};
 export type QueueState=Pick<Playlist,'cursorId'|'shuffleRemaining'|'shuffleHistory'>;
+// A completed cursor is not a resume target. Keep the original order when
+// searching for the next unfinished episode, including after a restart.
+export function resumePlaylistEntry(p:Playlist):PlaylistEntry|null{
+  if(!p.entries.length)return null;
+  const cursor=p.entries.findIndex(entry=>entry.id===p.cursorId);
+  if(cursor>=0&&!p.entries[cursor].completed)return p.entries[cursor];
+  const ordered=cursor<0?p.entries:[...p.entries.slice(cursor+1),...p.entries.slice(0,cursor+1)];
+  return ordered.find(entry=>!entry.completed)??null;
+}
 export function playlistEpisodeCode(entry:PlaylistEntry) {
   if(entry.season===null||entry.episode===null)return '';
   const code='S'+String(entry.season).padStart(2,'0')+'E'+String(entry.episode).padStart(2,'0');

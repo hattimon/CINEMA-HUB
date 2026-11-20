@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { db, uid, now, getItem } from './store.mjs';
-import { needsStargateLink, resolveStargateEntries, stargateEntryKey } from './stargate-playlists.mjs';
+import { db, uid, now, getItem, getSource } from './store.mjs';
+import { needsStargateLink, resolveStargateEntries, stargateEntryKey, stargateLinkStatus, stargateSeriesCode } from './stargate-playlists.mjs';
 import { combineFilmanPlaylistEntries } from './filman-editions.mjs';
 
 let playlistSchemaReady = false;
@@ -16,18 +16,26 @@ function ensurePlaylistSchema() {
         id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'once',
         revision INTEGER NOT NULL DEFAULT 1, cursor_id TEXT, shuffle_remaining TEXT NOT NULL DEFAULT '[]',
-        created INTEGER NOT NULL, updated INTEGER NOT NULL, shuffle_history TEXT NOT NULL DEFAULT '[]');
+        created INTEGER NOT NULL, updated INTEGER NOT NULL, shuffle_history TEXT NOT NULL DEFAULT '[]',
+        playback_stamp INTEGER NOT NULL DEFAULT 0, restart_generation INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS playlists_owner ON playlists(user_id,updated DESC);
       CREATE TABLE IF NOT EXISTS playlist_entries(
         id TEXT PRIMARY KEY, playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
         position INTEGER NOT NULL, media_item_id TEXT, episode_url TEXT,
         season INTEGER, episode INTEGER, label TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}',
-        completed INTEGER NOT NULL DEFAULT 0, playback_position REAL NOT NULL DEFAULT 0);
+        completed INTEGER NOT NULL DEFAULT 0, playback_position REAL NOT NULL DEFAULT 0,
+        progress_stamp INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS playlist_entries_order ON playlist_entries(playlist_id,position);
     `);
     const lists = db.prepare('PRAGMA table_info(playlists)').all();
     if (!lists.some(column => column.name === 'shuffle_history')) {
       db.exec("ALTER TABLE playlists ADD COLUMN shuffle_history TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!lists.some(column => column.name === 'playback_stamp')) {
+      db.exec('ALTER TABLE playlists ADD COLUMN playback_stamp INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!lists.some(column => column.name === 'restart_generation')) {
+      db.exec('ALTER TABLE playlists ADD COLUMN restart_generation INTEGER NOT NULL DEFAULT 0');
     }
     const entries = db.prepare('PRAGMA table_info(playlist_entries)').all();
     if (!entries.some(column => column.name === 'completed')) {
@@ -35,6 +43,9 @@ function ensurePlaylistSchema() {
     }
     if (!entries.some(column => column.name === 'playback_position')) {
       db.exec('ALTER TABLE playlist_entries ADD COLUMN playback_position REAL NOT NULL DEFAULT 0');
+    }
+    if (!entries.some(column => column.name === 'progress_stamp')) {
+      db.exec('ALTER TABLE playlist_entries ADD COLUMN progress_stamp INTEGER NOT NULL DEFAULT 0');
     }
   });
   playlistSchemaReady = true;
@@ -64,27 +75,90 @@ function entries(id,userId){
         const item = getItem(row.media_item_id,userId);
         record = {
           media: { id:item.id, title:item.title, kind:item.kind, sourceId:item.sourceId, sourceName:item.sourceName, poster:item.poster },
-          episodes: new Set(item.episodes?.map(episode => episode.url)),
+          item,
         };
       } catch { /* The source may have been removed. */ }
       items.set(row.media_item_id, record);
     }
     const record = items.get(row.media_item_id);
-    const entry = {id:row.id,position:row.position,itemId:row.media_item_id||null,episodeUrl:row.episode_url,season:row.season,episode:row.episode,label:row.label,metadata:JSON.parse(row.metadata),completed:!!row.completed,playbackPosition:row.playback_position,media:record?.media ?? null};
+    const entry = {id:row.id,position:row.position,itemId:row.media_item_id||null,episodeUrl:row.episode_url,season:row.season,episode:row.episode,label:row.label,metadata:JSON.parse(row.metadata),completed:!!row.completed,playbackPosition:row.playback_position,progressStamp:row.progress_stamp,media:record?.media ?? null};
     if (stargateEntryKey(entry)) {
-      entry.needsStargateLink = needsStargateLink(entry) || (entry.media.kind === 'series' && !record.episodes.has(entry.episodeUrl));
+      let source;
+      try { if (record) source = getSource(record.item.sourceId, userId); }
+      catch { /* A missing or disabled source must not hide the entire playlist. */ }
+      const status = stargateLinkStatus(entry, record?.item, source);
+      entry.needsStargateLink = needsStargateLink(entry) || !status.valid;
+      if (!status.valid && status.reason) entry.unavailableReason = status.reason;
     }
     return entry;
   });
 }
 const brief=row=>{
   const stats=db.prepare('SELECT COUNT(*) itemCount,COALESCE(SUM(completed),0) completedCount FROM playlist_entries WHERE playlist_id=?').get(row.id);
-  return {id:row.id,name:row.name,description:row.description,mode:row.mode,revision:row.revision,cursorId:row.cursor_id,shuffleRemaining:JSON.parse(row.shuffle_remaining),shuffleHistory:JSON.parse(row.shuffle_history),itemCount:stats.itemCount,completedCount:stats.completedCount,created:row.created,updated:row.updated};
+  const last=row.cursor_id?db.prepare('SELECT position,completed FROM playlist_entries WHERE playlist_id=? AND id=?').get(row.id,row.cursor_id):null;
+  const next=db.prepare('SELECT label,season,episode,playback_position,metadata,position FROM playlist_entries WHERE playlist_id=? AND completed=0 ORDER BY CASE WHEN id=? THEN -1 WHEN position>? THEN 0 ELSE 1 END,position LIMIT 1')
+    .get(row.id,row.cursor_id,last?.position??-1);
+  const episode=next?.season!=null&&next?.episode!=null?'S'+String(next.season).padStart(2,'0')+'E'+String(next.episode).padStart(2,'0'):'';
+  const series=next?String(JSON.parse(next.metadata||'{}').series_title||''):'';
+  const cursorLabel=next?[series,episode,next.label].filter(Boolean).join(' · '):null;
+  return {id:row.id,name:row.name,description:row.description,mode:row.mode,revision:row.revision,cursorId:row.cursor_id,shuffleRemaining:JSON.parse(row.shuffle_remaining),shuffleHistory:JSON.parse(row.shuffle_history),playbackStamp:row.playback_stamp,restartGeneration:row.restart_generation,itemCount:stats.itemCount,completedCount:stats.completedCount,cursorLabel,cursorTime:next?.playback_position||0,created:row.created,updated:row.updated};
 };
 const full=(row,userId)=>({...brief(row),entries:entries(row.id,userId)});
 function tx(fn){db.exec('BEGIN IMMEDIATE');try{const r=fn();db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}}
 const bump=id=>db.prepare('UPDATE playlists SET revision=revision+1,updated=? WHERE id=?').run(now(),id);
 function revision(row,value){if(value!==undefined&&value!==row.revision)throw fail('Playlista została zmieniona w innym oknie. Odśwież ją.',409);}
+const stargateCodes = new Set(['SG1','SGA','SGU','ORIGINS']);
+// Invalid media bindings are detached in place. The entry ID, cursor and
+// playback position are deliberately kept so an eventual repair can resume.
+function safePlaylistBinding(entry,userId) {
+  const metadata = {...(entry.metadata ?? {})};
+  let item,source;
+  try {
+    if (entry.itemId) {
+      item = getItem(entry.itemId,userId);
+      source = getSource(item.sourceId,userId);
+    }
+  } catch { /* A missing item is treated as unresolved. */ }
+  const providerCode = stargateSeriesCode(item,source);
+  const declaredCode = stargateCodes.has(metadata.series_code) ? metadata.series_code : undefined;
+  const code = declaredCode ?? providerCode;
+  const episodeBinding = entry.season != null || entry.episode != null || !!entry.episodeUrl;
+  let invalid = false;
+  if (code) {
+    if (providerCode && declaredCode && declaredCode !== providerCode) invalid = true;
+    if (item && !episodeBinding) invalid = true;
+    if (episodeBinding && (!Number.isSafeInteger(entry.season) || entry.season < 1
+      || !Number.isSafeInteger(entry.episode) || entry.episode < 1)) invalid = true;
+    if (item && !invalid) {
+      const status = stargateLinkStatus({...entry,metadata:{...metadata,series_code:code}},item,source);
+      if (!status.valid) invalid = true;
+    }
+    if (!item && (entry.itemId || entry.episodeUrl)) invalid = true;
+    metadata.series_code = code;
+  } else if (item && episodeBinding && item.kind !== 'series') {
+    invalid = true;
+  }
+  if (!invalid) return {...entry,metadata};
+  if (entry.itemId && !metadata.original_item_id) metadata.original_item_id = entry.itemId;
+  if (entry.episodeUrl && !metadata.original_episode_url) metadata.original_episode_url = entry.episodeUrl;
+  return {...entry,itemId:null,episodeUrl:null,metadata};
+}
+function reconcileStoredStargate(userId) {
+  const rows=db.prepare(`SELECT e.* FROM playlist_entries e JOIN playlists p ON p.id=e.playlist_id
+    WHERE p.user_id=? AND (e.media_item_id IS NOT NULL OR e.episode_url IS NOT NULL)`).all(userId);
+  const update=db.prepare('UPDATE playlist_entries SET media_item_id=?,episode_url=?,metadata=? WHERE id=?');
+  tx(() => {
+    for (const row of rows) {
+      const entry={itemId:row.media_item_id,episodeUrl:row.episode_url,season:row.season,
+        episode:row.episode,metadata:JSON.parse(row.metadata)};
+      const safe=safePlaylistBinding(entry,userId);
+      if (safe.itemId===entry.itemId && safe.episodeUrl===entry.episodeUrl
+        && JSON.stringify(safe.metadata)===row.metadata) continue;
+      update.run(safe.itemId,safe.episodeUrl,JSON.stringify(safe.metadata),row.id);
+      bump(row.playlist_id);
+    }
+  });
+}
 function insert(id,position,e){
   db.prepare('INSERT INTO playlist_entries(id,playlist_id,position,media_item_id,episode_url,season,episode,label,metadata,completed,playback_position) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
     .run(uid(),id,position,e.itemId||null,e.episodeUrl||null,e.season??null,e.episode??null,e.label||'',JSON.stringify(e.metadata||{}),e.completed?1:0,e.playbackPosition||0);
@@ -186,16 +260,16 @@ function normalizeJoinedPlaylists(userId) {
   });
 }
 function mapImported(e,userId,catalog){
-  if(e.itemId)try{getItem(e.itemId,userId);return e;}catch{
+  if(e.itemId)try{getItem(e.itemId,userId);return safePlaylistBinding(e,userId);}catch{
     e={...e,metadata:{...e.metadata,original_item_id:e.itemId},itemId:null};
   }
   // Stargate entries are matched to exact episode URLs in one batch.
-  if(stargateEntryKey(e))return e;
+  if(stargateEntryKey(e))return safePlaylistBinding(e,userId);
   const match=catalog.filter(item=>{
     const title=(item.title||'').toLowerCase().replace(/[^a-z0-9]/g,'');
     return title===String(e.metadata?.series||e.metadata?.title||e.label||'').toLowerCase().replace(/[^a-z0-9]/g,'');
   });
-  return match.length===1?{...e,itemId:match[0].id}:e;
+  return safePlaylistBinding(match.length===1?{...e,itemId:match[0].id}:e,userId);
 }
 
 function presetEntryKey(entry){
@@ -258,6 +332,8 @@ function prepareStargate(id, userId) {
         // playlist, its progress or a manually repaired link win.
         if (!link || !entry.needsStargateLink || keys.get(entry.id) !== stargateEntryKey(entry)) continue;
         if (!validItem.get(link.itemId, userId)) continue;
+        const item = getItem(link.itemId, userId);
+        if (!stargateLinkStatus({...entry, episodeUrl:link.episodeUrl},item,getSource(item.sourceId,userId)).valid) continue;
         update.run(link.itemId, link.episodeUrl, id, entry.id);
         changed = true;
       }
@@ -281,6 +357,7 @@ export function installPlaylistRoutes(app,auth){
   app.use(route,auth,(req,_res,next)=>{
     ensurePlaylistSchema();
     normalizeJoinedPlaylists(req.user.id);
+    reconcileStoredStargate(req.user.id);
     next();
   });
   app.get(route,(req,res)=>res.json(db.prepare('SELECT * FROM playlists WHERE user_id=? ORDER BY updated DESC').all(req.user.id).map(brief)));
@@ -310,8 +387,8 @@ export function installPlaylistRoutes(app,auth){
   app.post(route+'/:id/restart',(req,res)=>{
     tx(()=>{
       const p=playlist(req.params.id,req.user.id);
-      db.prepare('UPDATE playlist_entries SET completed=0,playback_position=0 WHERE playlist_id=?').run(p.id);
-      db.prepare("UPDATE playlists SET cursor_id=NULL,shuffle_remaining='[]',shuffle_history='[]' WHERE id=?").run(p.id);
+      db.prepare('UPDATE playlist_entries SET completed=0,playback_position=0,progress_stamp=MAX(progress_stamp+1,?) WHERE playlist_id=?').run(now(),p.id);
+      db.prepare("UPDATE playlists SET cursor_id=NULL,shuffle_remaining='[]',shuffle_history='[]',playback_stamp=MAX(playback_stamp+1,?),restart_generation=restart_generation+1 WHERE id=?").run(now(),p.id);
       bump(p.id);
     });
     res.json(full(playlist(req.params.id,req.user.id),req.user.id));
@@ -325,12 +402,13 @@ export function installPlaylistRoutes(app,auth){
   app.post(route+'/:id/entries',(req,res)=>{
     const b=z.object({entry:entrySchema,position:z.number().int().nonnegative().optional(),revision:z.number().int().optional()}).parse(req.body);
     if(b.entry.itemId)getItem(b.entry.itemId,req.user.id);
+    const safe=safePlaylistBinding(b.entry,req.user.id);
     tx(()=>{const p=playlist(req.params.id,req.user.id);revision(p,b.revision);
       const n=db.prepare('SELECT COUNT(*) AS count FROM playlist_entries WHERE playlist_id=?').get(p.id).count;
       if(n>=5000)throw fail('Playlista może zawierać maksymalnie 5000 pozycji.');
       const position=Math.min(b.position??n,n);
       db.prepare('UPDATE playlist_entries SET position=position+1 WHERE playlist_id=? AND position>=?').run(p.id,position);
-      insert(p.id,position,b.entry);db.prepare("UPDATE playlists SET shuffle_remaining='[]' WHERE id=?").run(p.id);bump(p.id);});
+      insert(p.id,position,safe);db.prepare("UPDATE playlists SET shuffle_remaining='[]' WHERE id=?").run(p.id);bump(p.id);});
     res.status(201).json(full(playlist(req.params.id,req.user.id),req.user.id));
   });
   app.patch(route+'/:id/entries',(req,res)=>{
@@ -345,9 +423,10 @@ export function installPlaylistRoutes(app,auth){
   app.patch(route+'/:id/entries/:entryId',(req,res)=>{
     const b=z.object({entry:entrySchema,revision:z.number().int().optional()}).parse(req.body);
     if(b.entry.itemId)getItem(b.entry.itemId,req.user.id);
+    const safe=safePlaylistBinding(b.entry,req.user.id);
     tx(()=>{const p=playlist(req.params.id,req.user.id);revision(p,b.revision);
       const result=db.prepare('UPDATE playlist_entries SET media_item_id=?,episode_url=?,season=?,episode=?,label=?,metadata=? WHERE playlist_id=? AND id=?')
-        .run(b.entry.itemId||null,b.entry.episodeUrl||null,b.entry.season??null,b.entry.episode??null,b.entry.label||'',JSON.stringify(b.entry.metadata||{}),p.id,req.params.entryId);
+        .run(safe.itemId||null,safe.episodeUrl||null,safe.season??null,safe.episode??null,safe.label||'',JSON.stringify(safe.metadata||{}),p.id,req.params.entryId);
       if(!result.changes)throw fail('Nie znaleziono pozycji.',404);
       db.prepare("UPDATE playlists SET shuffle_remaining='[]' WHERE id=?").run(p.id);bump(p.id);});
     res.json(full(playlist(req.params.id,req.user.id),req.user.id));
@@ -364,18 +443,32 @@ export function installPlaylistRoutes(app,auth){
     res.json(full(playlist(req.params.id,req.user.id),req.user.id));
   });
   app.patch(route+'/:id/entries/:entryId/progress',(req,res)=>{
-    const {completed,position}=z.object({completed:z.boolean().optional(),position:z.number().finite().min(0).max(1e8).optional()}).refine(b=>b.completed!==undefined||b.position!==undefined).parse(req.body);
+    const {completed,position,stamp,restartGeneration}=z.object({completed:z.boolean().optional(),position:z.number().finite().min(0).max(1e8).optional(),stamp:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),restartGeneration:z.number().int().nonnegative().optional()}).refine(b=>b.completed!==undefined||b.position!==undefined).parse(req.body);
     const p=playlist(req.params.id,req.user.id);
-    const result=db.prepare('UPDATE playlist_entries SET completed=COALESCE(?,completed),playback_position=COALESCE(?,playback_position) WHERE playlist_id=? AND id=?').run(completed===undefined?null:completed?1:0,position??null,p.id,req.params.entryId);
-    if(!result.changes)throw fail('Nie znaleziono pozycji.',404);
-    if(completed!==undefined)bump(p.id);
+    tx(()=>{
+      // A delayed request from before a restart must never restore the old session,
+      // even when its client timestamp is ahead of the server clock.
+      if((restartGeneration??0)!==playlist(p.id,req.user.id).restart_generation)return;
+      const previous=db.prepare('SELECT completed,progress_stamp FROM playlist_entries WHERE playlist_id=? AND id=?').get(p.id,req.params.entryId);
+      if(!previous)throw fail('Nie znaleziono pozycji.',404);
+      const timestamp=stamp??now();
+      if(timestamp<previous.progress_stamp)return;
+      // Startup/teardown callbacks often report 0 before the saved seek completes.
+      if(position===0&&completed===undefined)return;
+      if(previous.completed&&completed!==true)return;
+      db.prepare('UPDATE playlist_entries SET completed=COALESCE(?,completed),playback_position=COALESCE(?,playback_position),progress_stamp=? WHERE playlist_id=? AND id=?')
+        .run(completed===undefined?null:completed?1:0,position??null,timestamp,p.id,req.params.entryId);
+      if(completed!==undefined&&Number(previous.completed)!==Number(completed))bump(p.id);
+    });
     res.json(full(playlist(p.id,req.user.id),req.user.id));
   });
   app.patch(route+'/:id/playback',(req,res)=>{
-    const b=z.object({cursorId:z.string().nullable(),shuffleRemaining:z.array(z.string()).max(5000).optional(),shuffleHistory:z.array(z.string()).max(5000).optional()}).parse(req.body);
+    const b=z.object({cursorId:z.string().nullable(),shuffleRemaining:z.array(z.string()).max(5000).optional(),shuffleHistory:z.array(z.string()).max(5000).optional(),stamp:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),restartGeneration:z.number().int().nonnegative().optional()}).parse(req.body);
     const p=playlist(req.params.id,req.user.id),ids=db.prepare('SELECT id FROM playlist_entries WHERE playlist_id=?').all(p.id).map(e=>e.id);
     if(b.cursorId!==null&&!ids.includes(b.cursorId)||b.shuffleRemaining?.some(id=>!ids.includes(id))||b.shuffleRemaining&&new Set(b.shuffleRemaining).size!==b.shuffleRemaining.length||b.shuffleHistory?.some(id=>!ids.includes(id)))throw fail('Niepoprawny stan odtwarzania.');
-    db.prepare('UPDATE playlists SET cursor_id=?,shuffle_remaining=?,shuffle_history=?,updated=? WHERE id=? AND user_id=?').run(b.cursorId,JSON.stringify(b.shuffleRemaining??JSON.parse(p.shuffle_remaining)),JSON.stringify(b.shuffleHistory??JSON.parse(p.shuffle_history)),now(),p.id,req.user.id);
+    const timestamp=b.stamp??now();
+    db.prepare('UPDATE playlists SET cursor_id=?,shuffle_remaining=?,shuffle_history=?,playback_stamp=?,updated=? WHERE id=? AND user_id=? AND playback_stamp<=? AND restart_generation=?')
+      .run(b.cursorId,JSON.stringify(b.shuffleRemaining??JSON.parse(p.shuffle_remaining)),JSON.stringify(b.shuffleHistory??JSON.parse(p.shuffle_history)),timestamp,now(),p.id,req.user.id,timestamp,b.restartGeneration??0);
     res.json(full(playlist(p.id,req.user.id),req.user.id));
   });
   app.post(route+'/import',(req,res)=>{

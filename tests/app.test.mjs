@@ -59,8 +59,8 @@ before(async()=>{
         stargateFixture.details.add(url.pathname);
         return res.end(page);
       }
-      if(url.pathname.startsWith('/e/stargate-fixture/')){
-        const [,code,episode]=url.pathname.match(/\/stargate-fixture\/(SG1|SGA)\/(S\d+E\d+)/)||[];
+      if(stargateFixture.episodes?.has(url.pathname)){
+        const {code,episode}=stargateFixture.episodes.get(url.pathname);
         const title=code==='SG1'?'Gwiezdne wrota / Stargate SG-1':'Gwiezdne wrota: Atlantyda / Stargate Atlantis';
         return res.end(stargateFixture.playerPage.replace('Film próbny',title)
           .replace('<p>2025</p>','<p>'+(code==='SG1'?1997:2004)+'</p>')
@@ -825,7 +825,9 @@ test('Legacy joined episodes preserve the playlist cursor, progress and shuffle 
   const ids=[store.uid(),store.uid(),store.uid(),store.uid()];
   [3,1,2,4].forEach((number,index)=>{
     const episode=parent.episodes.find(episode=>episode.number===number);
-    store.db.prepare('INSERT INTO playlist_entries VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+    store.db.prepare(`INSERT INTO playlist_entries
+      (id,playlist_id,position,media_item_id,episode_url,season,episode,label,metadata,completed,playback_position)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
       .run(ids[index],id,index,parent.id,episode.url,1,number,episode.title,JSON.stringify({series_code:'SGA'}),0,index===1?19:index===2?42:0);
   });
   store.db.prepare('UPDATE playlists SET mode=?,cursor_id=?,shuffle_remaining=?,shuffle_history=? WHERE id=?')
@@ -853,7 +855,11 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       ['SG1','/s/1942/gwiezdne-wrota-stargate-sg-1','Gwiezdne wrota / Stargate SG-1',1997],
       ['SGA','/s/1963/gwiezdne-wrota-atlantyda-stargate-atlantis','Gwiezdne wrota: Atlantyda / Stargate Atlantis',2004],
     ];
-    const episodePath=entry=>'/e/stargate-fixture/'+entry.series_code+'/'+entry.episode_code;
+    const episodePath=entry=>{
+      const slug=series.find(([code])=>code===entry.series_code)[1].split('/').at(-1);
+      const id=(entry.series_code==='SG1'?30000:40000)+entry.season*100+entry.episode;
+      return '/e/'+slug+'/'+id+'/episode-'+entry.episode_code.toLowerCase()+'/388690';
+    };
     const openingFilm='/m/zuCitIpV249kEcxnTg7S5K08h';
     const movedFilm='/m/stargate-fixture-ark';
     const detailPage=(title,year)=>movie.replace('Film próbny',title).replace('<p>2025</p>','<p>'+year+'</p>');
@@ -873,6 +879,8 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
     }
     stargateFixture={
       pages,details:new Set(),searches:0,playerPage:movie+playerScript,
+      episodes:new Map(playableItems.filter(entry=>entry.type==='episode')
+        .map(entry=>[episodePath(entry),{code:entry.series_code,episode:entry.episode_code}])),
       searchPage:'<ul id="item-list">'+tile(movedFilm,'Gwiezdne Wrota: Arka Prawdy').replace('>2025<','>2008<')
         +tile('/m/stargate-fixture-pilot','Gwiezdne wrota Dzieci Bogów / Stargate SG-1: Children of the Gods')+'</ul>',
     };
@@ -907,7 +915,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await page.goto(base);
       await page.getByRole('button',{name:'Playlisty',exact:true}).click();
       await page.getByRole('complementary',{name:'Twoje playlisty'}).getByRole('button',{name:/chronologicznie/}).click();
-      await page.getByText(/315 powiązanych z katalogiem/).waitFor({timeout:90000});
+      await page.getByText(/314 powiązanych z katalogiem/).waitFor({timeout:90000});
       assert.equal(stargateFixture.details.size,5);
       assert.equal(stargateFixture.searches,1,'The moved film was found through the Filman search');
       const repaired=(await request('/playlists/'+legacy.id,undefined,cookie)).value;
@@ -916,6 +924,12 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       assert.deepEqual(repaired.entries.map(item=>item.id),legacy.entries.map(item=>item.id));
       for(let index=0;index<repaired.entries.length;index++){
         const actual=repaired.entries[index], expected=playableItems[index];
+        if(expected.series_code==='SGA'&&expected.season===1&&expected.episode===9){
+          assert.equal(actual.needsStargateLink,true,expected.key);
+          assert.equal(actual.episodeUrl,null,expected.key);
+          assert.equal(actual.itemId,null,expected.key);
+          continue;
+        }
         assert.equal(actual.needsStargateLink,false,expected.key);
         assert.equal(actual.media.sourceId,sourceId,expected.key);
         if(expected.type==='episode')assert.equal(actual.episodeUrl,origin+episodePath(expected),expected.key);
@@ -925,7 +939,8 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       assert.equal(shortResponse.status,200,JSON.stringify(shortResponse.value));
       const short=shortResponse.value.playlist;
       assert.equal(short.entries.length,161);
-      assert.ok(short.entries.every(item=>item.media?.sourceId===sourceId&&!item.needsStargateLink));
+      assert.ok(short.entries.every(item=>item.metadata?.series_code==='SGA'&&item.season===1&&item.episode===9
+        ? item.needsStargateLink&&!item.itemId : item.media?.sourceId===sourceId&&!item.needsStargateLink));
       assert.equal(stargateFixture.searches,1,'The second playlist reuses the resolved catalog');
       assert.equal((await request('/playlists/'+legacy.id+'/resolve-stargate',{},'cinema_session=none')).status,401);
 
@@ -968,7 +983,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await finishVideo();
       await waitForPlayback(series[1][2],'Sezon '+nextAtlantis.season+' · Odcinek '+nextAtlantis.episode);
       assert.deepEqual(autoChecks.map(check=>check.episode??null),[
-        null,origin+episodePath(template.items[1]),origin+'/e/stargate-fixture/SGA/S01E03',
+        null,origin+episodePath(template.items[1]),origin+episodePath(playableItems.find(e=>e.series_code==='SGA'&&e.season===1&&e.episode===3)),
         origin+episodePath(lastSG),origin+episodePath(nextAtlantis),
       ]);
       assert.ok(autoChecks.every(check=>check.auto===true&&!check.linkId&&check.preferredVersion==='Lektor'));

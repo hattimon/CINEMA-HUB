@@ -48,7 +48,27 @@ export function parseCatalog(html,base,{includeRecommendations=true,searchResult
 }
 export function parseDetail(html,url) {
   const $=load(html);const info=$('#single-info');const heading=info.find('h1').first().clone();heading.find('.flm-online-badge,span').remove();
-  const episodes=[];$('.episode-list a[href],#episode-list a[href]').each((_,el)=>{const a=$(el),label=clean(a.text()),match=/s(\d+)e(\d+)/i.exec(label);if(!match)return;try{episodes.push({url:sameSourceURL(absolute(a.attr('href'),url),url),title:label.replace(/\[?s\d+e\d+\]?/i,'').trim(),season:Number(match[1]),number:Number(match[2])});}catch{}});
+  const candidates=[];$('.episode-list a[href],#episode-list a[href]').each((_,el)=>{
+    const a=$(el),label=clean(a.text()),code=/\b(?:s(\d+)e(\d+)|(\d+)x(\d+))\b/i,match=code.exec(label);
+    if(!match)return;
+    const season=Number(match[1]??match[3]),number=Number(match[2]??match[4]);
+    if(!Number.isSafeInteger(season)||season<0||!Number.isSafeInteger(number)||number<1)return;
+    try{
+      const episodeURL=sameSourceURL(absolute(a.attr('href'),url),url);
+      if(!/^\/e\/[^/]+/.test(new URL(episodeURL).pathname))return;
+      candidates.push({url:episodeURL,title:label.replace(/\[?(?:s\d+e\d+|\d+x\d+)\]?/i,'').trim(),season,number});
+    }catch{/* Ignore off-provider and malformed episode URLs. */}
+  });
+  const ambiguous=new Set(),slots=new Map(),urls=new Map();
+  for(const episode of candidates){
+    const slot=episode.season+':'+episode.number,old=slots.get(slot);
+    if(old&&old.url!==episode.url)ambiguous.add(slot);
+    if(!old)slots.set(slot,episode);
+    const prev=urls.get(episode.url);
+    if(prev&&prev!==slot){ambiguous.add(prev);ambiguous.add(slot);}
+    urls.set(episode.url,slot);
+  }
+  const episodes=[...slots].filter(([slot])=>!ambiguous.has(slot)).map(([,episode])=>episode);
   episodes.sort((a,b)=>a.season-b.season||a.number-b.number);
   const sources=[];$('#links tbody a[data-link-id]').each((_,el)=>{const a=$(el),row=a.closest('tr'),cells=row.find('td');const id=a.attr('data-link-id');if(!/^\d+$/.test(id)||row.hasClass('visible-0')||row.hasClass('disabled'))return;sources.push({id,host:clean(a.find('img').attr('alt')||a.text().split(' dodane ')[0]),version:clean(cells.eq(1).text()),quality:clean(cells.eq(2).text())});});
   const description=clean($('#item-content > p,.item-content > p,#item-content h4 + p,.item-content h4 + p,[itemprop="description"]').first().text());
@@ -57,8 +77,9 @@ export function parseDetail(html,url) {
   const ratingText=clean($('#single-poster').text());
   const rating=Number(ratingText.match(/(?:OCENA UŻYTKOWNIKÓW|OCENA)\s*(\d+[.,]\d+)/i)?.[1].replace(',','.'))||null;
   const imdb=Number(ratingText.match(/(?:IMDB|iMDB)\s*(\d+[.,]\d+)/i)?.[1].replace(',','.'))||null;
-  const episodeText=clean(info.find('.episode-subtitle').text()),code=/s(\d+)e(\d+)/i.exec(episodeText);
+  const episodeText=clean(info.find('.episode-subtitle').text()),code=/\b(?:s(\d+)e(\d+)|(\d+)x(\d+))\b/i.exec(episodeText);
   const poster=absolute($('#single-poster img.main-poster,#single-poster img').first().attr('src'),url);
   const ids=key=>info.find(`a[href*="${key}:"]`).map((_,el)=>$(el).attr('href')?.match(new RegExp(key+':([\\d,]+)'))?.[1]).get().flatMap(v=>v.split(','));
-  return {url,title:clean(heading.text()).replace(/ online pl$/i,''),description,poster,genres,country,filterIds:{category:ids('category'),country:ids('country')},rating,ratingScale:5,imdb,year:Number(clean(info.text()).match(/\b(?:19|20)\d{2}\b/)?.[0])||null,episodes,sources,episode:code?{season:Number(code[1]),number:Number(code[2]),title:episodeText.replace(/\[?s\d+e\d+\]?/i,'').trim(),url}:null};
+  const episodeSeason=code?Number(code[1]??code[3]):null,episodeNumber=code?Number(code[2]??code[4]):null;
+  return {url,title:clean(heading.text()).replace(/ online pl$/i,''),description,poster,genres,country,filterIds:{category:ids('category'),country:ids('country')},rating,ratingScale:5,imdb,year:Number(clean(info.text()).match(/\b(?:19|20)\d{2}\b/)?.[0])||null,episodes,episodeConflicts:[...ambiguous],sources,episode:code&&Number.isSafeInteger(episodeSeason)&&episodeSeason>=0&&Number.isSafeInteger(episodeNumber)&&episodeNumber>=1?{season:episodeSeason,number:episodeNumber,title:episodeText.replace(/\[?(?:s\d+e\d+|\d+x\d+)\]?/i,'').trim(),url}:null};
 }

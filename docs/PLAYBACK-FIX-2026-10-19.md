@@ -54,7 +54,7 @@ Poprawka jest przygotowana dla serwera na Windows. Klient Android TV 1.3.4 zawie
 - Ulubione są dostępne po otwarciu szczegółów filmu lub serialu. Na okładkach i banerze biblioteki nie ma osobnego przycisku serduszka zatrzymującego nawigację pilotem.
 - W trakcie wyszukiwania hostingu można przejść strzałkami do ulubionych. Góra na pierwszym odcinku wychodzi nad listę; kolejna góra pokazuje okładkę i opis od początku okna.
 - „Szczegóły i ulubione” otwiera szczegóły bez przerywania bieżącego odtwarzacza. „Wznów oglądanie” przy źródłach wraca do niego lub wznawia ostatnio zamknięty seans tego samego odcinka od ostatniej pozycji.
-- Android TV 1.3.6: menu efektów otwiera kompaktowy panel po prawej bez przyciemniania obrazu. MENU na pilocie i przycisk odtwarzacza kierują do tego samego panelu. W przeglądarce menu otwiera ikona z trzema kropkami lub klawisz M.
+- Android TV 1.3.5: MENU otwiera efekty bez pauzy. W przeglądarce służy do tego ikona z trzema kropkami lub klawisz M. Zmiana efektów nie zatrzymuje filmu.
 - Jednowierszowy pasek ikon odtwarzacza. Opis natywnej ikony pojawia się przy osi czasu po zaznaczeniu pilotem.
 - Menu odtwarzacza: naturalny obraz, profil jaśniejszy do projektora, kino i łagodne SD; osobno trzy style CRT. Domyślnie bez efektów. Filtry nie odzyskują utraconych szczegółów materiału.
 - Dźwięk 100/150/200%. Android używa LoudnessEnhancer dla sesji filmu, panel Web Audio z ograniczeniem przesterowania. Brak wsparcia wyjścia audio daje komunikat i przywraca 100%.

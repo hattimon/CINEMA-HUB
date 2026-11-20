@@ -1,9 +1,11 @@
 import { db,getSettings,getSource,hashId } from './store.mjs';
 import { detail } from './adapters.mjs';
 import { sameTitle } from './catalog-match.mjs';
+import { stargateSeriesCode } from './stargate-playlists.mjs';
 
 export function matchingViderItems(userId,item) {
-  if(!getSettings(userId).combineSources||getSource(item.sourceId,userId).type==='vider')return [];
+  const source = getSource(item.sourceId,userId);
+  if(!getSettings(userId).combineSources||source.type==='vider'||stargateSeriesCode(item,source))return [];
   const candidates=db.prepare("SELECT i.value FROM items i JOIN sources s ON s.id=i.source_id WHERE s.user_id=? AND s.enabled=1 AND s.type='vider'").all(userId).map(row=>JSON.parse(row.value)).filter(candidate=>sameTitle(item,candidate));
   const known=db.prepare("SELECT i.value FROM items i JOIN sources s ON s.id=i.source_id WHERE s.user_id=? AND s.enabled=1 AND s.type!='vider'").all(userId).map(row=>JSON.parse(row.value));
   return candidates.filter(candidate=>candidate.kind==='series'||new Set(known.filter(other=>sameTitle(other,candidate)).map(other=>other.year).filter(Boolean)).size<=1);

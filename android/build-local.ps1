@@ -46,7 +46,26 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Push-Location $project
 try {
-    & (Join-Path $toolchain 'gradle\gradle-8.9\bin\gradle.bat') @Tasks --no-daemon
+    # Keep Gradle in this Java process: a single-use daemon requires a
+    # localhost connection that some managed Windows hosts reject.
+    $gradleLib = Join-Path $toolchain 'gradle\gradle-8.9\lib'
+    $gradleJvm = @(
+        '-Xmx1024m', '-Dfile.encoding=UTF-8',
+        '-Duser.country=PL', '-Duser.language=pl', '-Duser.variant=',
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED',
+        '--add-opens=java.prefs/java.util.prefs=ALL-UNNAMED',
+        '--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED',
+        '--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED',
+        '--add-opens=java.base/java.nio.charset=ALL-UNNAMED',
+        '--add-opens=java.base/java.net=ALL-UNNAMED',
+        '--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED',
+        "-javaagent:$(Join-Path $gradleLib 'agents\gradle-instrumentation-agent-8.9.jar')",
+        '-cp', (Join-Path $gradleLib 'gradle-gradle-cli-main-8.9.jar'),
+        'org.gradle.launcher.GradleMain'
+    )
+    & (Join-Path $env:JAVA_HOME 'bin\java.exe') @gradleJvm @Tasks --offline --no-daemon
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $apk = Join-Path $project 'app\build\outputs\apk\release\app-release.apk'
     if ((Test-Path -LiteralPath $apk) -and ($Tasks -contains ':app:assembleRelease')) {

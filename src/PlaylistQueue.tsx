@@ -40,7 +40,7 @@ export default function PlaylistQueue({playlist,onClose,onSelect}:Props) {
             disabled={!entry.media||entry.needsStargateLink}
             onClick={()=>onSelect(entry)}>
             <span className="playlist-queue-position">{entry.position+1}</span>
-            <span><strong>{title}</strong><small>{entry.id===playlist.cursorId?'Teraz odtwarzane':entry.completed?'Obejrzane':entry.needsStargateLink||!entry.media?'Źródło niedostępne':entry.media.sourceName||''}</small></span>
+            <span><strong>{title}</strong><small>{entry.id===playlist.cursorId?'▶ Teraz odtwarzane':entry.completed?'✓ Obejrzane':entry.needsStargateLink||!entry.media?'Źródło niedostępne':entry.playbackPosition>0?'W trakcie · '+Math.floor(entry.playbackPosition/60)+' min':entry.media.sourceName||'Nieobejrzane'}</small></span>
             <Play size={16}/>
           </button>
         </li>)}
