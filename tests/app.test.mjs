@@ -977,6 +977,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await page.locator('.playlist-drawer').waitFor({state:'hidden'});
       await waitForPlayback(series[1][2],'Sezon 1 · Odcinek 3');
       await page.getByRole('button',{name:'Menu efektów podczas odtwarzania',exact:true}).click();
+      await page.getByRole('button',{name:'Wróć do menu',exact:true}).click();
       await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();
       const crossover=playableItems.findIndex((item,index)=>item.series_code==='SG1'&&playableItems[index+1]?.series_code==='SGA');
       assert.ok(crossover>0);
