@@ -76,6 +76,7 @@ test('ARM64 fullscreen browser test exercises playback through a VP8 WebM fixtur
 
 test('Manual CI runs on main validate both architectures without publishing an untagged release', () => {
   const workflow = read('.github/workflows/container.yml');
+  assert.match(workflow, /push:\s+branches: \['main'\]\s+tags: \['v\*'\]/);
   assert.match(workflow, /publish_arch:\s+if: github\.ref_type == 'tag'\s+needs: build/);
   assert.match(workflow, /publish:\s+if: github\.ref_type == 'tag'\s+needs: publish_arch/);
   assert.match(workflow, /publish:\s+if: github\.ref_type == 'tag'/);
