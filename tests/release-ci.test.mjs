@@ -35,7 +35,7 @@ test('CI tests the full application with its dev-only TypeScript dependency befo
   assert.doesNotMatch(read('.dockerignore'), /^tests\s*$/m);
   assert.match(workflow, /target: release/);
   assert.match(workflow, /--target ci_test/);
-  assert.ok(workflow.indexOf('node --test tests/*.test.mjs') < workflow.indexOf('docker push "$IMAGE:$VERSION-$ARCH"'));
+  assert.ok(workflow.indexOf('node --test tests/*.test.mjs') < workflow.indexOf('push: true'));
 });
 
 test('Windows installer separates local builds from published GHCR images', () => {
@@ -54,8 +54,8 @@ test('Windows installer separates local builds from published GHCR images', () =
 test('Raspberry Pi installer pulls before replacement and retains a rollback image', () => {
   const installer = read('install-raspberry-pi.sh');
   assert.match(installer, /compose -f compose\.pi\.yaml pull cinema/);
-  assert.match(installer, /APP_IMAGE=ghcr\.io\/hattimon\/cinema-hub:1\.3\.24/);
-  assert.match(installer, /APP_IMAGE=cinema-hub:local-1\.3\.24/);
+  assert.ok(installer.includes(`APP_IMAGE=ghcr.io/hattimon/cinema-hub:${version}`));
+  assert.ok(installer.includes(`APP_IMAGE=cinema-hub:local-${version}`));
   assert.match(installer, /docker compose -f compose\.pi\.yaml build cinema/);
   assert.match(installer, /docker inspect --format '\{\{\.Image\}\}'/);
   assert.match(installer, /docker image tag "\$old_image" "\$rollback_tag"/);
@@ -76,6 +76,15 @@ test('ARM64 fullscreen browser test exercises playback through a VP8 WebM fixtur
 
 test('Manual CI runs on main validate both architectures without publishing an untagged release', () => {
   const workflow = read('.github/workflows/container.yml');
-  assert.match(workflow, /name: Push tested architecture\s+if: github\.ref_type == 'tag'/);
+  assert.match(workflow, /publish_arch:\s+if: github\.ref_type == 'tag'\s+needs: build/);
+  assert.match(workflow, /publish:\s+if: github\.ref_type == 'tag'\s+needs: publish_arch/);
   assert.match(workflow, /publish:\s+if: github\.ref_type == 'tag'/);
+});
+
+test('GitHub Release can only be created after both native architectures publish successfully', () => {
+  const workflow = read('.github/workflows/container.yml');
+  assert.match(workflow, /release:\s+if: github\.ref_type == 'tag'\s+needs: publish/);
+  assert.match(workflow, /gh release create "v\$version" --verify-tag/);
+  assert.match(workflow, /SHA256SUMS-AndroidTV-v\$version\.txt/);
+  assert.match(workflow, /SHA256SUMS-Server-v\$version\.txt/);
 });

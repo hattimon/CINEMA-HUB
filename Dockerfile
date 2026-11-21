@@ -17,7 +17,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && mkdir -p /data && chown node:node /data
 COPY server ./server
 COPY ops/start.sh ./ops/start.sh
-COPY releases/CinemaHub-AndroidTV-v1.3.24.apk ./clients/CinemaHub-AndroidTV-v1.3.24.apk
+COPY releases/CinemaHub-AndroidTV-v1.3.25.apk ./clients/CinemaHub-AndroidTV-v1.3.25.apk
 COPY --from=frontend /app/dist ./dist
 USER node
 EXPOSE 8090
@@ -34,6 +34,6 @@ COPY src ./src
 COPY Dockerfile .dockerignore ./
 COPY .github/workflows/container.yml ./.github/workflows/container.yml
 COPY ops/package-server.ps1 ./ops/package-server.ps1
-COPY releases/CinemaHub-AndroidTV-v1.3.24.apk ./releases/CinemaHub-AndroidTV-v1.3.24.apk
+COPY releases/CinemaHub-AndroidTV-v1.3.25.apk ./releases/CinemaHub-AndroidTV-v1.3.25.apk
 
 FROM runtime AS release

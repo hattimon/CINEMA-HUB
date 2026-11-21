@@ -2,6 +2,15 @@
 
 Klient Android panelu z kontenera, pakiet `pl.cinemahub.tv`. Instaluje się obok Filman TV. Konta, katalog, źródła i postęp oglądania obsługuje serwer Cinema Hub.
 
+## Wersja 1.3.25
+
+Klient z kodu w tym repozytorium posiada `versionName 1.3.25` oraz
+`versionCode 17`; identyfikator `pl.cinemahub.tv` pozostaje bez zmian.
+APK jest dostępne w `../releases/CinemaHub-AndroidTV-v1.3.25.apk`
+po lokalnym zbudowaniu. Przed aktualizacją istniejącej aplikacji
+należy potwierdzić, że certyfikat podpisujący odpowiada poprzedniej
+wersji 1.3.24. Test na fizycznym urządzeniu pozostaje do wykonania.
+
 ## Wersja 1.3.11 — rozpoznawanie mowy i sterowanie Asystentem Google
 
 APK: [CinemaHub-AndroidTV-v1.3.11.apk](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.11/CinemaHub-AndroidTV-v1.3.11.apk), `versionCode 15`, pakiet `pl.cinemahub.tv`. Zachowany podpis umożliwia aktualizację bez kasowania danych.

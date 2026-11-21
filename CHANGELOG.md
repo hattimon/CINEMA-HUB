@@ -4,6 +4,17 @@
 
 - Dodano gotową playlistę trzech filmów Avatar w kolejności premier, z dopasowaniem tytułów do katalogu użytkownika.
 
+## Serwer i Android TV 1.3.25 — finalizacja wydania
+
+- Nowa wersja po zablokowanym wydaniu 1.3.24; publiczny tag 1.3.24 pozostaje bez zmian.
+- Poprawiony natywny test pełnoekranowego odtwarzania ARM64 z kodekiem VP8/WebM.
+- Bezpieczne aktualizacje Windows i Raspberry Pi: pobranie obrazu przed zastąpieniem,
+  kopia konfiguracji, rollback oraz osobny tag lokalnego obrazu.
+- APK Android TV 1.3.25 (`versionCode` 17) z niezmienioną nazwą pakietu.
+- GitHub Actions publikuje GitHub Release po przejściu testów obu
+  architektur i publikacji manifestu GHCR.
+- [Dokumentacja wydania 1.3.25](docs/RELEASE-1.3.25.md).
+
 ## Serwer i Android TV 1.3.24 – playlisty i weryfikacja katalogu Stargate (kandydat wydania)
 
 - Kontynuacja playlist od ostatniego odcinka i czasu, odporny na utratę połączenia dziennik zapisu, przywracanie po logowaniu i ponownej weryfikacji źródła, panel kolejki z bieżącym odcinkiem, odtwarzanie następnego odcinka oraz nawigacja pilotem Android TV.

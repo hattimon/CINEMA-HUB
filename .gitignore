@@ -26,3 +26,4 @@ releases/*.zip
 # APK snapshots remain available locally; the current APK stays tracked in Git.
 releases/*.apk
 !releases/CinemaHub-AndroidTV-v1.3.24.apk
+!releases/CinemaHub-AndroidTV-v1.3.25.apk
