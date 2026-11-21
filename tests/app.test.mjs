@@ -889,7 +889,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
     }
     stargateFixture={
       pages,details:new Set(),searches:0,playerPage:movie+playerScript,
-      episodes:new Map(playableItems.filter(entry=>entry.type==='episode')
+      episodes:new Map(playableItems.filter(entry=>entry.type==='episode'&&entry.series_code)
         .map(entry=>[episodePath(entry),{code:entry.series_code,episode:entry.episode_code}])),
       searchPage:'<ul id="item-list">'+tile(movedFilm,'Gwiezdne Wrota: Arka Prawdy').replace('>2025<','>2008<')
         +tile('/m/stargate-fixture-pilot','Gwiezdne wrota Dzieci Bogów / Stargate SG-1: Children of the Gods')+'</ul>',
@@ -925,7 +925,7 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       await page.goto(base);
       await page.getByRole('button',{name:'Playlisty',exact:true}).click();
       await page.getByRole('complementary',{name:'Twoje playlisty'}).getByRole('button',{name:/chronologicznie/}).click();
-      await page.getByText(/314 powiązanych z katalogiem/).waitFor({timeout:90000});
+      await page.getByText(/313 powiązanych z katalogiem/).waitFor({timeout:90000});
       assert.equal(stargateFixture.details.size,5);
       assert.equal(stargateFixture.searches,1,'The moved film was found through the Filman search');
       const repaired=(await request('/playlists/'+legacy.id,undefined,cookie)).value;
@@ -934,6 +934,13 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       assert.deepEqual(repaired.entries.map(item=>item.id),legacy.entries.map(item=>item.id));
       for(let index=0;index<repaired.entries.length;index++){
         const actual=repaired.entries[index], expected=playableItems[index];
+        if(expected.availability==='unverified'){
+          assert.equal(actual.itemId,null,expected.key);
+          assert.equal(actual.episodeUrl,null,expected.key);
+          assert.equal(actual.media,null,expected.key);
+          assert.ok(!actual.needsStargateLink,expected.key);
+          continue;
+        }
         if(expected.series_code==='SGA'&&expected.season===1&&expected.episode===9){
           assert.equal(actual.needsStargateLink,true,expected.key);
           assert.equal(actual.episodeUrl,null,expected.key);
@@ -949,7 +956,9 @@ test('Stargate repairs the saved playlist and automatically plays a film and bot
       assert.equal(shortResponse.status,200,JSON.stringify(shortResponse.value));
       const short=shortResponse.value.playlist;
       assert.equal(short.entries.length,161);
-      assert.ok(short.entries.every(item=>item.metadata?.series_code==='SGA'&&item.season===1&&item.episode===9
+      assert.ok(short.entries.every(item=>item.metadata?.availability==='unverified'
+        ? !item.itemId&&!item.episodeUrl&&!item.needsStargateLink
+        : item.metadata?.series_code==='SGA'&&item.season===1&&item.episode===9
         ? item.needsStargateLink&&!item.itemId : item.media?.sourceId===sourceId&&!item.needsStargateLink));
       assert.equal(stargateFixture.searches,1,'The second playlist reuses the resolved catalog');
       assert.equal((await request('/playlists/'+legacy.id+'/resolve-stargate',{},'cinema_session=none')).status,401);
