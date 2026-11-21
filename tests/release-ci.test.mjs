@@ -27,6 +27,7 @@ test('CI tests the full application with its dev-only TypeScript dependency befo
   assert.match(dockerfile, /COPY --from=frontend \/app\/node_modules\/typescript \.\/node_modules\/typescript/);
   assert.match(dockerfile, /COPY tests \.\/tests/);
   assert.match(dockerfile, /COPY src \.\/src/);
+  assert.match(dockerfile, /COPY install-windows\.ps1 install-raspberry-pi\.sh \.\//);
   assert.match(dockerfile, /COPY Dockerfile \.dockerignore \.\//);
   assert.match(dockerfile, /COPY \.github\/workflows\/container\.yml \.\/\.github\/workflows\/container\.yml/);
   assert.match(dockerfile, /COPY ops\/package-server\.ps1 \.\/ops\/package-server\.ps1/);
@@ -35,6 +36,7 @@ test('CI tests the full application with its dev-only TypeScript dependency befo
   assert.doesNotMatch(read('.dockerignore'), /^tests\s*$/m);
   assert.match(workflow, /target: release/);
   assert.match(workflow, /--target ci_test/);
+  assert.match(workflow, /sh -n install-raspberry-pi\.sh/);
   assert.ok(workflow.indexOf('node --test tests/*.test.mjs') < workflow.indexOf('push: true'));
 });
 

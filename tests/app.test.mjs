@@ -37,7 +37,7 @@ before(async()=>{
     // seekable VP8 video in the fullscreen UI test on both architectures.
     const webmPath=resolve(directory,'fullscreen-ci.webm');
     const webm=spawnSync('ffmpeg',['-v','error','-y','-f','lavfi','-i','color=c=blue:s=160x90:r=2','-t','130','-c:v','libvpx','-deadline','realtime','-cpu-used','8','-b:v','150k','-g','2','-an',webmPath],{maxBuffer:2*1024*1024});
-    assert.equal(webm.status,0,webm.stderr?.toString());webmBuffer=readFileSync(webmPath);
+    assert.equal(webm.status,0,webm.stderr?.toString());webmBuffer=readFileSync(webmPath);rmSync(webmPath);
   }
   fixture=http.createServer((req,res)=>{
     const url=new URL(req.url,'http://fixture');res.setHeader('Content-Type','text/html; charset=utf-8');

@@ -31,6 +31,7 @@ FROM runtime AS ci_test
 COPY --from=frontend /app/node_modules/typescript ./node_modules/typescript
 COPY tests ./tests
 COPY src ./src
+COPY install-windows.ps1 install-raspberry-pi.sh ./
 COPY Dockerfile .dockerignore ./
 COPY .github/workflows/container.yml ./.github/workflows/container.yml
 COPY ops/package-server.ps1 ./ops/package-server.ps1
