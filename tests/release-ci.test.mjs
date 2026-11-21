@@ -37,3 +37,39 @@ test('CI tests the full application with its dev-only TypeScript dependency befo
   assert.match(workflow, /--target ci_test/);
   assert.ok(workflow.indexOf('node --test tests/*.test.mjs') < workflow.indexOf('docker push "$IMAGE:$VERSION-$ARCH"'));
 });
+
+test('Windows installer separates local builds from published GHCR images', () => {
+  const installer = read('install-windows.ps1');
+  assert.match(installer, /cinema-hub:local-\$cinemaVersion/);
+  assert.match(installer, /\$previousImage = \[Environment\]::GetEnvironmentVariable\('APP_IMAGE', 'Process'\)/);
+  assert.match(installer, /SetEnvironmentVariable\('APP_IMAGE', \$previousImage, 'Process'\)/);
+  assert.match(installer, /'compose', 'pull', 'cinema'/);
+  assert.match(installer, /'compose', 'up', '-d', '--no-build', '--no-deps', '--pull', 'never', '--wait', 'cinema'/);
+  assert.ok(installer.indexOf("'compose', 'pull', 'cinema'") < installer.lastIndexOf("'compose', 'up', '-d'"));
+  assert.match(installer, /if \(\$LASTEXITCODE -ne 0\) \{ throw/);
+  assert.match(installer, /Set-CinemaPublishedImage -Image \$publishedImage/);
+  assert.ok(installer.indexOf("'compose', 'up', '-d'") < installer.lastIndexOf('Set-CinemaPublishedImage -Image $publishedImage'));
+});
+
+test('Raspberry Pi installer pulls before replacement and retains a rollback image', () => {
+  const installer = read('install-raspberry-pi.sh');
+  assert.match(installer, /compose -f compose\.pi\.yaml pull cinema/);
+  assert.match(installer, /APP_IMAGE=ghcr\.io\/hattimon\/cinema-hub:1\.3\.24/);
+  assert.match(installer, /APP_IMAGE=cinema-hub:local-1\.3\.24/);
+  assert.match(installer, /docker compose -f compose\.pi\.yaml build cinema/);
+  assert.match(installer, /docker inspect --format '\{\{\.Image\}\}'/);
+  assert.match(installer, /docker image tag "\$old_image" "\$rollback_tag"/);
+  assert.match(installer, /cp -p \.env "\$backup"/);
+  assert.match(installer, /awk -v image="\$APP_IMAGE"/);
+  assert.match(installer, /compose -f compose\.pi\.yaml up -d --no-build --no-deps --pull never --wait cinema/);
+  assert.ok(installer.indexOf('compose -f compose.pi.yaml pull cinema') < installer.indexOf('compose -f compose.pi.yaml up -d'));
+});
+
+test('ARM64 fullscreen browser test exercises playback through a VP8 WebM fixture', () => {
+  const suite = read('tests/app.test.mjs');
+  assert.match(suite, /'-c:v','libvpx'/);
+  assert.match(suite, /if\(url\.pathname==='\/film\.webm'\)return sendVideo\(req,res,webmBuffer,'video\/webm'\)/);
+  assert.match(suite, /fullscreenWebM=true/);
+  assert.doesNotMatch(suite, /Hosted ARM64 Chromium cannot decode/);
+  assert.match(suite, /Fullscreen WebM playback fixture did not start/);
+});

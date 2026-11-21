@@ -20,7 +20,8 @@ const filters='<ul id="filter-sort" class="single-select"><li data-sort="sort:ra
 const tile=(url,title)=>`<li><a class="textOverImage2" href="${url}" title="${title}" data-text="Prawdziwy opis"><img src="/poster.jpg"><span class="rate">4.77 (8)</span><span class="quality-version">Lektor|720p</span></a><h1>${title}</h1><span class="year">2025</span></li>`;
 const table='<table id="links"><tbody><tr><td><a href="#" data-link-id="101"><img alt="Działający hosting"></a></td><td>Lektor</td><td>720p</td></tr><tr><td><a href="#" data-link-id="102"><img alt="Uszkodzony hosting"></a></td><td>Napisy</td><td>1080p</td></tr></tbody></table>';
 const movie=`<div id="single-info"><h1>Film próbny<span>ONLINE PL</span></h1><a href="/filmy/category:1/">Akcja</a><a href="/filmy/category:12/">Dramat</a><p>2025</p></div><div id="single-poster"><img class="main-poster" src="/poster.jpg">OCENA UŻYTKOWNIKÓW 4.77 /5 IMDB 8.3 /10</div><div id="item-content"><p>Pełny opis filmu</p></div>${table}`;
-let fixture,origin,base,admin,other,source,item,playback,filmBuffer,tsBuffer,portalSource,hostingClicks=0,movieVisits=0,viderCatalogVisits=0,viderPlayerClicks=0,playerPauseClicks=0;
+let fixture,origin,base,admin,other,source,item,playback,filmBuffer,webmBuffer,tsBuffer,portalSource,hostingClicks=0,movieVisits=0,viderCatalogVisits=0,viderPlayerClicks=0,playerPauseClicks=0;
+let fullscreenWebM=false;
 let backgroundPings=0,trackedHostingClicks=0;
 let rotatingUploadVisits=0;
 const selectedUploads=[];
@@ -28,9 +29,16 @@ let stargateFixture;
 const cloudFiles=new Map();
 const hasTools=spawnSync('ffmpeg',['-version']).status===0&&spawnSync('ffprobe',['-version']).status===0;
 let slowFilmFirstRequest=true;
-const sendFilm=(req,res)=>{if(!filmBuffer)return res.writeHead(404).end();const match=/bytes=(\d+)-(\d*)/.exec(req.headers.range||'');const start=match?Number(match[1]):0,end=match?.[2]?Math.min(Number(match[2]),filmBuffer.length-1):filmBuffer.length-1;if(start>=filmBuffer.length)return res.writeHead(416).end();res.writeHead(match?206:200,{'Content-Type':'video/mp4','Accept-Ranges':'bytes','Content-Length':end-start+1,...(match?{'Content-Range':`bytes ${start}-${end}/${filmBuffer.length}`}:{})});return res.end(filmBuffer.subarray(start,end+1));};
+const sendVideo=(req,res,buffer,contentType)=>{if(!buffer)return res.writeHead(404).end();const match=/bytes=(\d+)-(\d*)/.exec(req.headers.range||'');const start=match?Number(match[1]):0,end=match?.[2]?Math.min(Number(match[2]),buffer.length-1):buffer.length-1;if(start>=buffer.length)return res.writeHead(416).end();res.writeHead(match?206:200,{'Content-Type':contentType,'Accept-Ranges':'bytes','Content-Length':end-start+1,...(match?{'Content-Range':`bytes ${start}-${end}/${buffer.length}`}:{})});return res.end(buffer.subarray(start,end+1));};
+const sendFilm=(req,res)=>sendVideo(req,res,filmBuffer,'video/mp4');
 before(async()=>{
-  if(hasTools){const generated=spawnSync('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=320x180:rate=10','-f','lavfi','-i','anullsrc=r=44100:cl=mono','-t','130','-c:v','libx264','-threads','2','-preset','ultrafast','-c:a','aac','-movflags','frag_keyframe+empty_moov','-f','mp4','pipe:1'],{maxBuffer:20*1024*1024});assert.equal(generated.status,0);filmBuffer=generated.stdout;const converted=spawnSync('ffmpeg',['-v','error','-i','pipe:0','-c','copy','-f','mpegts','pipe:1'],{input:filmBuffer,maxBuffer:20*1024*1024});assert.equal(converted.status,0);tsBuffer=converted.stdout;}
+  if(hasTools){const generated=spawnSync('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=320x180:rate=10','-f','lavfi','-i','anullsrc=r=44100:cl=mono','-t','130','-c:v','libx264','-threads','2','-preset','ultrafast','-c:a','aac','-movflags','frag_keyframe+empty_moov','-f','mp4','pipe:1'],{maxBuffer:20*1024*1024});assert.equal(generated.status,0);filmBuffer=generated.stdout;const converted=spawnSync('ffmpeg',['-v','error','-i','pipe:0','-c','copy','-f','mpegts','pipe:1'],{input:filmBuffer,maxBuffer:20*1024*1024});assert.equal(converted.status,0);tsBuffer=converted.stdout;
+    // Chromium on Linux ARM64 does not guarantee H.264 support. Use a real,
+    // seekable VP8 video in the fullscreen UI test on both architectures.
+    const webmPath=resolve(directory,'fullscreen-ci.webm');
+    const webm=spawnSync('ffmpeg',['-v','error','-y','-f','lavfi','-i','color=c=blue:s=160x90:r=2','-t','130','-c:v','libvpx','-deadline','realtime','-cpu-used','8','-b:v','150k','-g','2','-an',webmPath],{maxBuffer:2*1024*1024});
+    assert.equal(webm.status,0,webm.stderr?.toString());webmBuffer=readFileSync(webmPath);
+  }
   fixture=http.createServer((req,res)=>{
     const url=new URL(req.url,'http://fixture');res.setHeader('Content-Type','text/html; charset=utf-8');
     if(url.pathname.startsWith('/cloud/')&&req.method==='PUT'){
@@ -41,6 +49,7 @@ before(async()=>{
     if(url.pathname==='/stream.m3u8')return res.writeHead(200,{'Content-Type':'application/vnd.apple.mpegurl'}).end('#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:131\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:130.0,\nsegment.ts\n#EXT-X-ENDLIST\n');
     if(url.pathname==='/segment.ts')return res.writeHead(200,{'Content-Type':'video/mp2t','Content-Length':tsBuffer.length}).end(tsBuffer);
     if(url.pathname==='/film.mp4')return sendFilm(req,res);
+    if(url.pathname==='/film.webm')return sendVideo(req,res,webmBuffer,'video/webm');
     if(url.pathname==='/slow-film.mp4'){const delay=slowFilmFirstRequest?1800:0;slowFilmFirstRequest=false;return setTimeout(()=>{if(!res.destroyed)sendFilm(req,res);},delay);}
     if(url.pathname==='/player-pause-click'){playerPauseClicks++;return res.end('ok');}
     if(url.pathname==='/bad.mp4')return res.writeHead(200,{'Content-Type':'text/html'}).end('<html>Reklama / błąd</html>');
@@ -119,7 +128,7 @@ before(async()=>{
     if(url.pathname.startsWith('/filmy/'))return res.end(`${filters}<ul id="item-list">${tile('/m/test','Film próbny')}</ul>`);
     if(url.pathname.startsWith('/seriale/'))return res.end(`${filters}<ul id="item-list">${tile('/s/1/serial','Serial próbny')}</ul>`);
     if(url.pathname==='/nginx/')return res.end('<a href="clip.mp4">Film lokalny.mp4</a><a href="sub/">Folder</a><a href="../">Parent</a>');
-    if(url.pathname==='/nginx/clip.mp4'){res.writeHead(302,{Location:'/film.mp4'});return res.end();}
+    if(url.pathname==='/nginx/clip.mp4'){res.writeHead(302,{Location:fullscreenWebM?'/film.webm':'/film.mp4'});return res.end();}
     if(url.pathname==='/api/list'){
       const listing={
         '':[{name:'FILMY',path:'FILMY',kind:'folder'},{name:'Zwiastun.mp4',path:'Zwiastun.mp4',kind:'video',size:100}],
@@ -1229,9 +1238,10 @@ test('Registration, backup codes and Authenticator pairing are available in the 
 });
 
 test('Fullscreen browser menu dialogs retain the active movie',{skip:!hasTools||!process.env.CHROMIUM_PATH},async()=>{
+  fullscreenWebM=true;
   const settings=(await request('/settings')).value;await request('/settings',{defaultSources:[source.id]},admin,'PATCH');const {chromium}=await import('playwright');const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required']});
   try{
-    const context=await browser.newContext({viewport:{width:1280,height:720}});const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(base);await page.getByRole('button',{name:'Zobacz Film lokalny',exact:true}).click({timeout:30000});await page.locator('.playable-row').getByRole('button',{name:'Odtwórz',exact:true}).click({timeout:20000});await page.waitForFunction(()=>{const video=document.querySelector('.player-overlay video');return video&&!video.paused&&video.currentTime>0;});
+    const context=await browser.newContext({viewport:{width:1280,height:720}});const equals=admin.indexOf('=');await context.addCookies([{name:admin.slice(0,equals),value:admin.slice(equals+1),url:base,httpOnly:true,sameSite:'Strict'}]);const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(base);await page.getByRole('button',{name:'Zobacz Film lokalny',exact:true}).click({timeout:30000});await page.locator('.playable-row').getByRole('button',{name:'Odtwórz',exact:true}).click({timeout:20000});try{await page.waitForFunction(()=>{const video=document.querySelector('.player-overlay video');return video&&!video.paused&&video.currentTime>0;});}catch(error){const details=await page.locator('.player-overlay video').evaluate(video=>({errorCode:video.error?.code??null,errorMessage:video.error?.message??null,readyState:video.readyState,networkState:video.networkState,source:video.currentSrc}));throw new Error('Fullscreen WebM playback fixture did not start: '+JSON.stringify(details),{cause:error});}
     const noWindowScrollbar=async label=>{
       const layout=await page.evaluate(()=>{const player=document.querySelector('.player-overlay'),root=document.documentElement;return {rootOverflow:getComputedStyle(root).overflowY,bodyOverflow:getComputedStyle(document.body).overflowY,playerOverflow:getComputedStyle(player).overflowY,width:root.clientWidth,viewport:innerWidth,height:player.clientHeight,contentHeight:player.scrollHeight};});
       assert.equal(layout.rootOverflow,'hidden',label);assert.equal(layout.bodyOverflow,'hidden',label);assert.equal(layout.playerOverflow,'hidden',label);assert.equal(layout.width,layout.viewport,label);assert.ok(layout.contentHeight<=layout.height,label+' must fit without clipping controls');
@@ -1246,7 +1256,7 @@ test('Fullscreen browser menu dialogs retain the active movie',{skip:!hasTools||
     await page.getByRole('button',{name:'Zmień źródło',exact:true}).click();const dialog=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zmień źródło',exact:true})});await dialog.waitFor();assert.equal(await dialog.evaluate(el=>document.fullscreenElement?.contains(el)),true);await dialog.getByRole('button',{name:'Zamknij',exact:true}).click();assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.currentSrc),stream);
     await page.getByRole('button',{name:'Zapisz',exact:true}).click();const save=page.locator('.modal').filter({has:page.getByRole('heading',{name:'Zapisz film',exact:true})});await save.waitFor();assert.equal(await save.evaluate(el=>document.fullscreenElement?.contains(el)),true);await save.getByRole('button',{name:'Zamknij',exact:true}).click();await page.getByRole('button',{name:'Wznów',exact:true}).click();await page.locator('.player-footer').waitFor({state:'hidden'});assert.equal(await page.locator('.player-overlay video').evaluate(video=>video.paused),false);assert.deepEqual(errors,[]);
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.fullscreenElement);await noWindowScrollbar('After leaving fullscreen');await page.getByRole('button',{name:'Zamknij odtwarzacz',exact:true}).click();await page.waitForFunction(()=>!document.documentElement.classList.contains('player-open'));assert.notEqual(await page.evaluate(()=>getComputedStyle(document.documentElement).overflowY),'hidden','Closing playback restores normal page scrolling');
-  }finally{await browser.close();await request('/settings',{defaultSources:settings.defaultSources},admin,'PATCH');}
+  }finally{fullscreenWebM=false;await browser.close();await request('/settings',{defaultSources:settings.defaultSources},admin,'PATCH');}
 });
 
 test('Catalog page reads are coalesced per account and source, without caching failures',async()=>{

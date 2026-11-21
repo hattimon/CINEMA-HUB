@@ -2,8 +2,27 @@ node_modules/
 dist/
 data/
 .env
+.env.backup-*
+.env.new-*
 *.log
 .private/
 .toolchain/
 ops/*.request.json
 ops/*.result.json
+# Local CI logs, temporary deployment snapshots and generated packages.
+output/
+ops/*.poll.json
+ops/*.tgz
+ops/*.zip
+ops/cloud-stage-*/
+ops/windows-stage-*/
+ops/rollback-windows-*/
+ops/oracle-test/
+ops/freebuff-bridge.config.json
+ops/hermes-bridge.config.json
+ops/railway-ids.json
+docs/stargate-audit-*.json
+releases/*.zip
+# APK snapshots remain available locally; the current APK stays tracked in Git.
+releases/*.apk
+!releases/CinemaHub-AndroidTV-v1.3.24.apk
