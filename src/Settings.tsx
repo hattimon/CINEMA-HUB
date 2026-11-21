@@ -12,7 +12,7 @@ type FolderInspection={path:string;folders:{path:string;title:string}[];videos:n
 const parentFolder=(path:string)=>path.split('/').filter(Boolean).slice(0,-1).join('/');
 type Props={user:User;settings:Preferences;sources:Source[];destinations:Destination[];onSettings:(s:Preferences|((old:Preferences)=>Preferences))=>void;refresh:()=>Promise<void>;message:(s:string)=>void;onDevice:()=>void};
 export default function SettingsPanel({user,settings,sources,destinations,onSettings,refresh,message,onDevice}:Props) {
-  const[tab,setTab]=useState('playback'),[busy,setBusy]=useState(false),[editing,setEditing]=useState(''),[showSource,setShowSource]=useState(false),[showStorage,setShowStorage]=useState(false),[users,setUsers]=useState<User[]>([]),[diagnostics,setDiagnostics]=useState<Record<string,unknown>>({});
+  const[tab,setTab]=useState('sources'),[busy,setBusy]=useState(false),[editing,setEditing]=useState(''),[showSource,setShowSource]=useState(false),[showStorage,setShowStorage]=useState(false),[users,setUsers]=useState<User[]>([]),[diagnostics,setDiagnostics]=useState<Record<string,unknown>>({});
   const[source,setSource]=useState(blankSource);
   const[removingSource,setRemovingSource]=useState<Source|null>(null);
   const [inspectPath,setInspectPath]=useState(''),[inspection,setInspection]=useState<FolderInspection|null>(null),[inspectionBusy,setInspectionBusy]=useState(false),[inspectMessage,setInspectMessage]=useState('');

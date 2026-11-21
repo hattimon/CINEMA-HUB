@@ -1,24 +1,24 @@
 # Instalacja kontenerowa
 
-Serwer 1.3.25 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
+Serwer 1.3.26 obsługuje platformy `linux/amd64` i `linux/arm64`. Na Windows używaj Docker Desktop w trybie kontenerów Linux. Na Raspberry Pi używaj systemu 64-bit i Docker Compose. Profil Pi ogranicza kontener do 2 CPU i 1536 MB RAM.
 
 ## Instalacja przez DCC
 
 Cinema Hub jest już w kategorii **Media** sklepu aplikacji [Docker Control Center (DCC)](https://github.com/hattimon/DCC). Wybierz host Docker na Windows lub Linux, następnie **SKLEP → Media → Cinema Hub → Instaluj**. DCC uruchomi lokalny kontener z gotową konfiguracją. Na Windows używaj działającego Docker Desktop z kontenerami Linux; na Linux wymagany jest Docker. Możesz także wybrać zdalny host obsługiwany przez DCC, np. Raspberry Pi ARM64.
 
-DCC Container Updater szuka wydania dla obrazu `ghcr.io/hattimon/cinema-hub`. Podczas przygotowania wersji 1.3.25 (21.11.2026) katalog DCC wskazywał `1.3.15`. Nową wersję katalogu można wdrożyć po potwierdzeniu publikacji GHCR dla obu architektur i GitHub Release. Następnie odśwież skan **Kontenery**, wybierz Cinema Hub i sprawdź docelowy obraz `ghcr.io/hattimon/cinema-hub:1.3.25`. Kontener utworzony w sklepie DCC możesz zaktualizować przyciskiem **Aktualizuj**. Jeśli używasz lokalnej nazwy obrazu, przełącz instalację na obraz GHCR z zachowaniem dotychczasowego podpięcia `/data`.
+DCC Container Updater szuka wydania dla obrazu `ghcr.io/hattimon/cinema-hub`. Podczas przygotowania wersji 1.3.26 (21.11.2026) katalog DCC wskazywał `1.3.15`. Nową wersję katalogu można wdrożyć po potwierdzeniu publikacji GHCR dla obu architektur i GitHub Release. Następnie odśwież skan **Kontenery**, wybierz Cinema Hub i sprawdź docelowy obraz `ghcr.io/hattimon/cinema-hub:1.3.26`. Kontener utworzony w sklepie DCC możesz zaktualizować przyciskiem **Aktualizuj**. Jeśli używasz lokalnej nazwy obrazu, przełącz instalację na obraz GHCR z zachowaniem dotychczasowego podpięcia `/data`.
 
 Jeśli uruchamiasz Cinema Hub z Compose na Windowsie, użyj akcji **Windows: przygotuj aktualizację z zachowaniem bazy** w DCC Container Updater 1.1.9 lub nowszym. Uruchom pobrany skrypt w PowerShell 7 na hoście Docker Desktop. Sprawdź wynik testu na kopii bazy, potem uruchom skrypt z `-Apply`. Do kolejnych ręcznych uruchomień Compose dołącz wygenerowany plik `images.override.json` albo ustaw tę samą wersję w konfiguracji.
 
-W instalacji Compose na Linuksie, w tym na Raspberry Pi, ustaw w istniejącym `.env` wartość `APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.25`. Odśwież skan w DCC i zastosuj aktualizację usługi. DCC musi mieć dostęp do plików projektu i do ścieżki z danymi, jeśli są podpięte z dysku. Jeśli DCC nie zarządza tym projektem, użyj poleceń Compose z sekcji **Aktualizacje przez Compose**.
+W instalacji Compose na Linuksie, w tym na Raspberry Pi, ustaw w istniejącym `.env` wartość `APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.26`. Odśwież skan w DCC i zastosuj aktualizację usługi. DCC musi mieć dostęp do plików projektu i do ścieżki z danymi, jeśli są podpięte z dysku. Jeśli DCC nie zarządza tym projektem, użyj poleceń Compose z sekcji **Aktualizacje przez Compose**.
 
 Opis i zrzuty aplikacji: **[hattimon.github.io/CINEMA-HUB](https://hattimon.github.io/CINEMA-HUB/)**.
 
 ## Windows
 
-1. Sklonuj repo do lokalnej kompilacji wersji 1.3.25. Po przejściu CI pobierz i rozpakuj [paczkę serwera 1.3.25](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.25) z opublikowanego wydania.
+1. Sklonuj repo do lokalnej kompilacji wersji 1.3.26. Po przejściu CI pobierz i rozpakuj [paczkę serwera 1.3.26](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.26) z opublikowanego wydania.
 2. Otwórz PowerShell w katalogu Cinema Hub.
-3. Do czasu publikacji obrazu uruchom `.\install-windows.ps1 -Build` (lokalny znacznik `cinema-hub:local-1.3.25`). Po publikacji uruchom `.\install-windows.ps1`: instalator pobierze obraz 1.3.25 i po udanym uruchomieniu zaktualizuje tylko `APP_IMAGE` w `.env`, zachowując kopię poprzedniej konfiguracji. Jeżeli polityka PowerShell blokuje plik, możesz dla tego uruchomienia użyć `powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Build`.
+3. Do czasu publikacji obrazu uruchom `.\install-windows.ps1 -Build` (lokalny znacznik `cinema-hub:local-1.3.26`). Po publikacji uruchom `.\install-windows.ps1`: instalator pobierze obraz 1.3.26 i po udanym uruchomieniu zaktualizuje tylko `APP_IMAGE` w `.env`, zachowując kopię poprzedniej konfiguracji. Jeżeli polityka PowerShell blokuje plik, możesz dla tego uruchomienia użyć `powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -Build`.
 4. Otwórz `http://localhost:8090/`. Na TV wpisz adres IP komputera i port 8090.
 5. Zaloguj konto `admin` hasłem z lokalnego `.env`.
 
@@ -27,11 +27,11 @@ Instalator bez `-Build` wykonuje najpierw `docker compose pull cinema` i przeryw
 ## Raspberry Pi
 
 1. Pobierz paczkę serwera albo sklonuj repo na Pi.
-2. Do czasu publikacji obrazu 1.3.25 wykonaj `sh install-raspberry-pi.sh --build`. Po publikacji wykonaj `sh install-raspberry-pi.sh`, aby pobrać przetestowany obraz GHCR.
+2. Do czasu publikacji obrazu 1.3.26 wykonaj `sh install-raspberry-pi.sh --build`. Po publikacji wykonaj `sh install-raspberry-pi.sh`, aby pobrać przetestowany obraz GHCR.
 3. Otwórz `http://IP_RASPBERRY_PI:9999/`.
 4. Zaloguj konto `admin` hasłem z `.env`.
 
-Budowa z kodu na Pi: `sh install-raspberry-pi.sh --build` (lokalny obraz `cinema-hub:local-1.3.25`). Zwykły instalator najpierw pobiera opublikowany obraz 1.3.25, zapisuje poprzedni obraz działającego kontenera jako `cinema-hub:rollback-<czas UTC>`, a po pomyślnym uruchomieniu aktualizuje `APP_IMAGE` w `.env` i tworzy kopię `.env.backup-<czas UTC>`. W celu przywrócenia zapisz tag rollback w `APP_IMAGE` w `.env`, następnie wykonaj `docker compose -f compose.pi.yaml up -d --no-build --pull never cinema`. Zachowaj oryginalne podpięcie `/data`. Paczka wydania zawiera również gotowy panel `dist/` do użycia z `Dockerfile.pi`.
+Budowa z kodu na Pi: `sh install-raspberry-pi.sh --build` (lokalny obraz `cinema-hub:local-1.3.26`). Zwykły instalator najpierw pobiera opublikowany obraz 1.3.26, zapisuje poprzedni obraz działającego kontenera jako `cinema-hub:rollback-<czas UTC>`, a po pomyślnym uruchomieniu aktualizuje `APP_IMAGE` w `.env` i tworzy kopię `.env.backup-<czas UTC>`. W celu przywrócenia zapisz tag rollback w `APP_IMAGE` w `.env`, następnie wykonaj `docker compose -f compose.pi.yaml up -d --no-build --pull never cinema`. Zachowaj oryginalne podpięcie `/data`. Paczka wydania zawiera również gotowy panel `dist/` do użycia z `Dockerfile.pi`.
 
 ## Ręczne uruchomienie
 
@@ -53,7 +53,7 @@ Dodaj `--build` do `up`, aby zbudować obraz lokalnie. Port ustawia `APP_PORT`; 
 
 ## Aktualizacje przez Compose
 
-W istniejącym `.env` zaktualizuj `APP_IMAGE` do `ghcr.io/hattimon/cinema-hub:1.3.25`, a następnie uruchom z tego samego katalogu projektu:
+W istniejącym `.env` zaktualizuj `APP_IMAGE` do `ghcr.io/hattimon/cinema-hub:1.3.26`, a następnie uruchom z tego samego katalogu projektu:
 
 ```sh
 docker compose pull cinema

@@ -110,7 +110,7 @@ public class MainActivity extends Activity {
     private LinearLayout nativeTitle,nativeActions,nativeMenu;
     private final java.util.Map<String,Button> playbackPanelOptions=new java.util.LinkedHashMap<>();
     private final java.util.Map<String,String> playbackPanelLabels=new java.util.HashMap<>();
-    private Button nativeAutoplay,nativeHost,nativeSources,nativePause,nativeFullscreen;
+    private Button nativeAutoplay,nativeHost,nativeSources,nativePlaylist,nativePause,nativeFullscreen;
     private DefaultTimeBar nativeTimeBar;
     private TextView nativeTimeText;
     private boolean scrubbing;
@@ -123,7 +123,7 @@ public class MainActivity extends Activity {
     private JSONObject playbackRequest;
     private CrtOverlay crtOverlay;
     private boolean playerFullscreen,webPanel,series,preservePlaybackEffectsPanel;
-    private boolean autoAdvance,canNext,canPrevious,preferManualHost;
+    private boolean autoAdvance,canNext,canPrevious,preferManualHost,hasPlaylist;
     private WebView web,loginWeb;
     private Dialog loginDialog;
     private Dialog playbackEffectsDialog;
@@ -433,6 +433,8 @@ public class MainActivity extends Activity {
         autoAdvance=data.optBoolean("autoAdvance",autoAdvance);
         canNext=data.optBoolean("canNext",canNext);
         canPrevious=data.optBoolean("canPrevious",canPrevious);
+        hasPlaylist=data.optBoolean("hasPlaylist",hasPlaylist);
+        if(nativePlaylist!=null){nativePlaylist.setVisibility(hasPlaylist?View.VISIBLE:View.GONE);nativePlaylist.setFocusable(hasPlaylist);}
         preferManualHost=data.optBoolean("preferManualHost",preferManualHost);
         playerFullscreen=data.optBoolean("fullscreen",playerFullscreen);
         String requested=data.optString("videoEffect",videoEffect);if(java.util.Arrays.asList("none","crt","crt-warm","crt-green").contains(requested))videoEffect=requested;
@@ -494,6 +496,8 @@ public class MainActivity extends Activity {
         if(canNext)iconAction("›","Następny odcinek",nativeActions,()->post(event("next")));
         nativeFullscreen=iconAction("⛶","Pełny ekran / wróć do menu",nativeActions,()->setPlayerFullscreen(!playerFullscreen));
         nativeSources=iconAction("≡","Zmień źródło",nativeActions,()->openWebPanel("sources"));
+        nativePlaylist=iconAction("☷","Lista odcinków",nativeActions,()->openWebPanel("playlist"));
+        nativePlaylist.setVisibility(hasPlaylist?View.VISIBLE:View.GONE);nativePlaylist.setFocusable(hasPlaylist);
         iconAction("↓","Zapisz film",nativeActions,()->openWebPanel("save"));
         if(series||canPrevious||canNext){
             nativeAutoplay=iconAction("↻","Autoplay",nativeActions,()->{autoAdvance=!autoAdvance;postFlag("autoplay",autoAdvance);refreshNativeControls(false);});
@@ -628,7 +632,7 @@ public class MainActivity extends Activity {
     private JSONObject event(String type){JSONObject value=new JSONObject();try{value.put("type",type);value.put("playbackId",playbackId);}catch(Exception ignored){}return value;}
     private void post(JSONObject value){if(playerReply!=null&&WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))try{playerReply.postMessage(value.toString());}catch(Exception ignored){}}
     private void sendProgress(boolean completed){if(player==null||player.getDuration()<60000)return;JSONObject value=event("progress");try{value.put("position",player.getCurrentPosition()/1000.0);value.put("duration",player.getDuration()/1000.0);value.put("playing",player.isPlaying());value.put("buffering",player.getPlayWhenReady()&&player.getPlaybackState()==Player.STATE_BUFFERING);value.put("completed",completed);}catch(Exception ignored){}post(value);}
-    private void closePlayer(boolean notify,boolean ended){if(player==null)return;if(!preservePlaybackEffectsPanel)closePlaybackEffectsPanel();sendProgress(ended);JSONObject closed=event("closed");try{closed.put("ended",ended);}catch(Exception ignored){}handler.removeCallbacks(progressTick);handler.removeCallbacks(timelineTick);handler.removeCallbacks(hideNativeOverlay);playbackRequest=null;appliedPicture="";crtOverlay=null;nativeControlHint="";ExoPlayer old=player;player=null;audioProcessor=null;if(playerView!=null)playerView.setPlayer(null);old.release();if(playerLayer!=null)root.removeView(playerLayer);playerLayer=null;playerView=null;nativeTitle=null;nativeActions=null;nativeAutoplay=null;nativeHost=null;nativeSources=null;nativePause=null;nativeFullscreen=null;nativeMenu=null;nativeTimeBar=null;nativeTimeText=null;scrubbing=false;webPanel=false;pausedByLifecycle=false;if(notify)post(closed);playerReply=null;playbackId=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);if(web!=null)web.requestFocus();immersive();}
+    private void closePlayer(boolean notify,boolean ended){if(player==null)return;if(!preservePlaybackEffectsPanel)closePlaybackEffectsPanel();sendProgress(ended);JSONObject closed=event("closed");try{closed.put("ended",ended);}catch(Exception ignored){}handler.removeCallbacks(progressTick);handler.removeCallbacks(timelineTick);handler.removeCallbacks(hideNativeOverlay);playbackRequest=null;appliedPicture="";crtOverlay=null;nativeControlHint="";ExoPlayer old=player;player=null;audioProcessor=null;if(playerView!=null)playerView.setPlayer(null);old.release();if(playerLayer!=null)root.removeView(playerLayer);playerLayer=null;playerView=null;nativeTitle=null;nativeActions=null;nativeAutoplay=null;nativeHost=null;nativeSources=null;nativePlaylist=null;nativePause=null;nativeFullscreen=null;nativeMenu=null;nativeTimeBar=null;nativeTimeText=null;scrubbing=false;webPanel=false;hasPlaylist=false;pausedByLifecycle=false;if(notify)post(closed);playerReply=null;playbackId=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);if(web!=null)web.requestFocus();immersive();}
     private void hideCustom(){if(customView==null)return;root.removeView(customView);customView=null;if(customCallback!=null)customCallback.onCustomViewHidden();customCallback=null;if(menuButton!=null)menuButton.setVisibility(View.VISIBLE);if(cursor!=null)cursor.setVisibility(cursorMode?View.VISIBLE:View.GONE);immersive();}
 
     private void editServer(){EditText input=new EditText(this);input.setSingleLine(true);input.setText(server);input.setHint("192.168.11.20:9999 lub https://twoje-kino.pl");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Adres serwera Cinema Hub").setMessage("Wpisz IP z portem lub pełny adres panelu kontenera.").setView(input).setPositiveButton("Połącz",null).setNeutralButton("Pi :9999",(d,w)->{server=ServerAddress.DEFAULT;saveServer();createWeb();}).setNegativeButton("Anuluj",null).create();dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{String address=ServerAddress.normalize(input.getText().toString());server=address;saveServer();dialog.dismiss();createWeb();}catch(IllegalArgumentException error){input.setError(error.getMessage());}}));dialog.show();}

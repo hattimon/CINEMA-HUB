@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath '.env')) {
     $cinemaRng = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $cinemaRng.GetBytes($cinemaRandom) } finally { $cinemaRng.Dispose() }
     $cinemaPassword = [Convert]::ToBase64String($cinemaRandom)
-    @('APP_PORT=8090', 'LAN_BIND=0.0.0.0', 'APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.25', "INITIAL_ADMIN_PASSWORD=$cinemaPassword", 'COOKIE_SECURE=false', 'PUBLIC_ORIGIN=') |
+    @('APP_PORT=8090', 'LAN_BIND=0.0.0.0', 'APP_IMAGE=ghcr.io/hattimon/cinema-hub:1.3.26', "INITIAL_ADMIN_PASSWORD=$cinemaPassword", 'COOKIE_SECURE=false', 'PUBLIC_ORIGIN=') |
         Set-Content -LiteralPath '.env' -Encoding ascii
 }
 
@@ -55,7 +55,7 @@ if ($Build) {
     # Pull must succeed before Compose can update the running service.
     # An unpublished version fails without silently building a local image.
     $previousImage = [Environment]::GetEnvironmentVariable('APP_IMAGE', 'Process')
-    $publishedImage = 'ghcr.io/hattimon/cinema-hub:1.3.25'
+    $publishedImage = 'ghcr.io/hattimon/cinema-hub:1.3.26'
     try {
         $env:APP_IMAGE = $publishedImage
         Invoke-CinemaDocker -DockerArguments @('compose', 'pull', 'cinema')

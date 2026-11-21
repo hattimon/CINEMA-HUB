@@ -1,6 +1,6 @@
 # Cinema Hub na Android TV
 
-Klient: **[CinemaHub-AndroidTV-v1.3.10.apk](https://github.com/hattimon/CINEMA-HUB/releases/download/android-v1.3.10/CinemaHub-AndroidTV-v1.3.10.apk)**, `versionCode 14`. Android 6 lub nowszy; pakiet `pl.cinemahub.tv`. Wyszukiwanie głosowe wymaga panelu serwera obsługującego tę funkcję, dostępnego w lokalnym kontenerze 1.3.14. Mikrofon pilota i jakość rozpoznawania wymagają rzeczywistego testu na Magcubic L018. Klient zawiera Media3/ExoPlayer i obsługę pilota; działanie mikrofonu, dekoderów i pilota zależy od firmware urządzenia.
+Klient: **[CinemaHub-AndroidTV-v1.3.26.apk](https://github.com/hattimon/CINEMA-HUB/releases/tag/v1.3.26)**, `versionCode 18`. Android 6 lub nowszy; pakiet `pl.cinemahub.tv`. Wyszukiwanie głosowe wymaga serwera obsługującego tę funkcję. Mikrofon pilota, CAPTCHA i obsługa listy odcinków wymagają rzeczywistego testu na Magcubic L018. Klient zawiera Media3/ExoPlayer; działanie mikrofonu, dekoderów i pilota zależy od firmware urządzenia.
 
 **MENU → Mikrofon i rozpoznawanie** udostępnia wybór dostawcy rozpoznawania, stan uprawnień, listę wejść audio i dziesięciosekundowy test poziomu mikrofonu. Test nie zapisuje nagrania. [Nowości wersji 1.3.10](RELEASE-ANDROID-1.3.10.md).
 
@@ -12,7 +12,7 @@ Klient: **[CinemaHub-AndroidTV-v1.3.10.apk](https://github.com/hattimon/CINEMA-H
 4. Uruchom Cinema Hub i wpisz IP z portem, np. `IP_SERWERA:8090` albo `IP_PI:9999`.
 5. Zaloguj się do swojego konta Cinema Hub.
 
-APK 1.3.10 ma podpis zgodny z poprzednim wydaniem 1.3.9. Instaluj go jako aktualizację istniejącej Cinema Hub, bez odinstalowania i czyszczenia danych. Adres można zmienić przez **MENU → Adres IP / URL serwera**. Dotychczasowe funkcje działają również ze starszym serwerem; przycisk głosowy pojawia się po aktualizacji panelu.
+APK 1.3.26 ma certyfikat podpisujący zgodny z poprzednim APK 1.3.25. Instaluj go jako aktualizację istniejącej Cinema Hub, bez odinstalowania i czyszczenia danych. Adres można zmienić przez **MENU → Adres IP / URL serwera**. Funkcje z wydania 1.3.26 wymagają zgodnej wersji serwera Cinema Hub.
 
 ## Aktualizacje aplikacji
 
@@ -28,6 +28,7 @@ Cinema Hub sprawdza nowe wydanie po uruchomieniu i pyta, czy pobrać aktualizacj
 | OK na liście odcinków | Wejście do wierszy i wybór odcinka |
 | Pełny ekran | Ukrycie menu podczas seansu |
 | OK na pełnym ekranie | Pauza i pokazanie menu |
+| Lista odcinków (podczas odtwarzania playlisty) | Otwiera kolejkę w panelu odtwarzacza; OK wybiera pozycję, Wstecz zamyka listę |
 | Wznów | Odtwarzanie z ukrytym menu |
 | Lewo / prawo podczas odtwarzania | Przewijanie o 10 sekund |
 | MENU albo góra na pełnym ekranie | Pauza i przyciski odtwarzacza |

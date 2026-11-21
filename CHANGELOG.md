@@ -1,5 +1,19 @@
 # Historia wydań
 
+## Serwer i Android TV 1.3.26 — nawigacja TV, playlisty i sesje źródeł
+
+- Menu Android TV zawiera dziewięć pozycji: Biblioteka, Filmy, Seriale,
+  Ulubione, Kontynuuj, Chcę obejrzeć, Pobrane, Playlisty i Ustawienia.
+  Ustawienia pozostają dostępne na dole przewijanego panelu.
+- Wejście do Ustawień z menu otwiera zakładkę Źródła, również przy kolejnym wejściu.
+- Panel odtwarzacza oferuje „Lista odcinków” dla materiałów z playlisty,
+  również w natywnym trybie pełnoekranowym Android TV. Kolejność playlist
+  mieszanych oraz dotychczasowe postępy są zachowywane.
+- Źródła wykorzystują zapisany profil przeglądarki, ograniczone próby odnowienia
+  sesji i ręczne potwierdzenie logowania/CAPTCHA tylko w razie potrzeby.
+- Wspólne wydanie serwera i Android TV 1.3.26 (`versionCode` 18).
+  [Opis zmian i ograniczenia](docs/RELEASE-1.3.26.md).
+
 ## Przygotowywana aktualizacja
 
 - Dodano gotową playlistę trzech filmów Avatar w kolejności premier, z dopasowaniem tytułów do katalogu użytkownika.
