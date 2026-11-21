@@ -3,8 +3,8 @@
   "status": "local_prepared_unpublished",
   "artifact": {
     "path": "releases/CinemaHub-Server-v1.3.25.zip",
-    "bytes": 4442008,
-    "sha256": "02dac97c508e4aee9196d0faf2e0c5c97fddbbbf428a89d23a72427f09b361e9",
+    "bytes": 4442007,
+    "sha256": "7c053b3e79c2d63ad420fa63722eeee23ae179dd710633bf311e6d13fec3e5b0",
     "entries": 116
   },
   "image": {

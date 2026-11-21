@@ -1,1 +1,1 @@
-02dac97c508e4aee9196d0faf2e0c5c97fddbbbf428a89d23a72427f09b361e9  CinemaHub-Server-v1.3.25.zip
+7c053b3e79c2d63ad420fa63722eeee23ae179dd710633bf311e6d13fec3e5b0  CinemaHub-Server-v1.3.25.zip
