@@ -32,18 +32,21 @@ jobs:
         name: Read release version
         run: |
           version=$(node -p "require('./package.json').version")
+          apk_version=$(node -p "require('./package.json').androidTvClientVersion")
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$apk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           if [ "$GITHUB_REF_TYPE" = tag ]; then test "$GITHUB_REF_NAME" = "v$version"; fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "apk_version=$apk_version" >> "$GITHUB_OUTPUT"
       - name: Verify Android TV APK is available to Docker
         env:
-          VERSION: ${{ steps.version.outputs.value }}
+          APK_VERSION: ${{ steps.version.outputs.apk_version }}
         run: |
-          apk="releases/CinemaHub-AndroidTV-v$VERSION.apk"
+          apk="releases/CinemaHub-AndroidTV-v$APK_VERSION.apk"
           test -s "$apk"
           grep -Fxq "!$apk" .dockerignore
-          grep -Fq "COPY $apk ./clients/CinemaHub-AndroidTV-v$VERSION.apk" Dockerfile
-          (cd releases && sha256sum -c "SHA256SUMS-AndroidTV-v$VERSION.txt")
+          grep -Fq "COPY $apk ./clients/CinemaHub-AndroidTV-v$APK_VERSION.apk" Dockerfile
+          (cd releases && sha256sum -c "SHA256SUMS-AndroidTV-v$APK_VERSION.txt")
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -156,12 +159,15 @@ jobs:
       - name: Build and package exactly the tested release commit
         run: |
           version=$(node -p "require('./package.json').version")
+          apk_version=$(node -p "require('./package.json').androidTvClientVersion")
           test "$GITHUB_REF_NAME" = "v$version"
+          [[ "$apk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           npm ci --no-audit --no-fund
           npm run build
           pwsh -File ./ops/package-server.ps1
           (cd releases && sha256sum -c "SHA256SUMS-Server-v$version.txt")
-          (cd releases && sha256sum -c "SHA256SUMS-AndroidTV-v$version.txt")
+          (cd releases && sha256sum -c "SHA256SUMS-AndroidTV-v$apk_version.txt")
+          test "$(jq -r '.androidTvClient.version' "releases/CinemaHub-v$version-manifest.json")" = "$apk_version"
           jq '.status = "published" | .image.published = true' "releases/CinemaHub-v$version-manifest.json" > "releases/release-manifest.tmp"
           mv "releases/release-manifest.tmp" "releases/CinemaHub-v$version-manifest.json"
       - name: Publish GitHub Release after both architectures pass
@@ -173,7 +179,7 @@ jobs:
             --title "Cinema Hub $version" \
             --notes-file "docs/RELEASE-$version.md" \
             "releases/CinemaHub-Server-v$version.zip" \
-            "releases/CinemaHub-AndroidTV-v$version.apk" \
             "releases/SHA256SUMS-Server-v$version.txt" \
-            "releases/SHA256SUMS-AndroidTV-v$version.txt" \
+            "releases/CinemaHub-AndroidTV-v$apk_version.apk" \
+            "releases/SHA256SUMS-AndroidTV-v$apk_version.txt" \
             "releases/CinemaHub-v$version-manifest.json"

@@ -1,0 +1,38 @@
+{
+  "version": "1.3.27",
+  "status": "local_prepared_unpublished",
+  "artifact": {
+    "path": "releases/CinemaHub-Server-v1.3.27.zip",
+    "bytes": 4447323,
+    "sha256": "54d444b6b3ff2def1c31ddde49e64581ba5c158eff93886f050c10e5a0ebe2d2",
+    "entries": 117
+  },
+  "image": {
+    "repository": "ghcr.io/hattimon/cinema-hub",
+    "tag": "1.3.27",
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64"
+    ],
+    "published": false
+  },
+  "androidTvClient": {
+    "version": "1.3.26",
+    "packagedInContainer": true,
+    "githubReleaseAsset": true,
+    "reusedUnchanged": true,
+    "hardwareVerified": false,
+    "sha256": "277e663733ddb381752f6c41d0340187dec5a18aa680fe62bf4baea2e8057e62"
+  },
+  "audit": {
+    "scope": "archived_metadata_only",
+    "episodes": 314,
+    "verifiedVideoFrames": 0,
+    "unavailable": [
+      "SGA S01E09"
+    ],
+    "unverified": [
+      "SGA S01E18"
+    ]
+  }
+}

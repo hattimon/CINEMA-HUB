@@ -4,20 +4,29 @@ import { existsSync, readFileSync } from 'node:fs';
 
 const root = new URL('../', import.meta.url);
 const read = name => readFileSync(new URL(name, root), 'utf8');
-const version = JSON.parse(read('package.json')).version;
+const { version, androidTvClientVersion: apkVersion } = JSON.parse(read('package.json'));
 
-test('Android TV APK matches the version included in the container build context', () => {
-  const apk = `releases/CinemaHub-AndroidTV-v${version}.apk`;
+test('Server release keeps the existing Android TV APK and its checksum', () => {
+  const apk = `releases/CinemaHub-AndroidTV-v${apkVersion}.apk`;
   const dockerfile = read('Dockerfile');
   const dockerignore = read('.dockerignore');
   const workflow = read('.github/workflows/container.yml');
   assert.ok(existsSync(new URL(apk, root)), `Missing ${apk}`);
-  assert.ok(dockerfile.includes(`COPY ${apk} ./clients/CinemaHub-AndroidTV-v${version}.apk`));
+  assert.equal(version, '1.3.27');
+  assert.equal(apkVersion, '1.3.26');
+  assert.ok(dockerfile.includes(`COPY ${apk} ./clients/CinemaHub-AndroidTV-v${apkVersion}.apk`));
   assert.ok(dockerignore.split(/\r?\n/).includes(`!${apk}`));
+  const checksum = `releases/SHA256SUMS-AndroidTV-v${apkVersion}.txt`;
+  assert.ok(dockerignore.split(/\r?\n/).includes(`!${checksum}`));
+  assert.ok(dockerfile.includes(`COPY ${checksum} ./${checksum}`));
   assert.ok(workflow.includes('Verify Android TV APK is available to Docker'));
+  assert.match(workflow, /APK_VERSION: \$\{\{ steps\.version\.outputs\.apk_version \}\}/);
+  assert.ok(existsSync(new URL(`releases/SHA256SUMS-AndroidTV-v${apkVersion}.txt`, root)));
   const packager = read('ops/package-server.ps1');
   assert.ok(packager.includes("'.github/workflows/container.yml'"));
   assert.ok(packager.includes("'tests/release-ci.test.mjs'"));
+  assert.match(packager, /androidTvClient = \[ordered\]@\{ version = \$apkVersion/);
+  assert.match(packager, /Android TV client checksum mismatch/);
 });
 
 test('CI tests the full application with its dev-only TypeScript dependency before pushing', () => {
@@ -31,7 +40,7 @@ test('CI tests the full application with its dev-only TypeScript dependency befo
   assert.match(dockerfile, /COPY Dockerfile \.dockerignore \.\//);
   assert.match(dockerfile, /COPY \.github\/workflows\/container\.yml \.\/\.github\/workflows\/container\.yml/);
   assert.match(dockerfile, /COPY ops\/package-server\.ps1 \.\/ops\/package-server\.ps1/);
-  assert.ok(dockerfile.includes(`COPY releases/CinemaHub-AndroidTV-v${version}.apk ./releases/CinemaHub-AndroidTV-v${version}.apk`));
+  assert.ok(dockerfile.includes(`COPY releases/CinemaHub-AndroidTV-v${apkVersion}.apk ./releases/CinemaHub-AndroidTV-v${apkVersion}.apk`));
   assert.match(dockerfile, /FROM runtime AS release\s*$/);
   assert.doesNotMatch(read('.dockerignore'), /^tests\s*$/m);
   assert.match(workflow, /target: release/);
@@ -43,6 +52,7 @@ test('CI tests the full application with its dev-only TypeScript dependency befo
 
 test('Windows installer separates local builds from published GHCR images', () => {
   const installer = read('install-windows.ps1');
+  assert.match(installer, /"INITIAL_ADMIN_PASSWORD=\$cinemaPassword"/);
   assert.match(installer, /cinema-hub:local-\$cinemaVersion/);
   assert.match(installer, /\$previousImage = \[Environment\]::GetEnvironmentVariable\('APP_IMAGE', 'Process'\)/);
   assert.match(installer, /SetEnvironmentVariable\('APP_IMAGE', \$previousImage, 'Process'\)/);
@@ -56,6 +66,7 @@ test('Windows installer separates local builds from published GHCR images', () =
 
 test('Raspberry Pi installer pulls before replacement and retains a rollback image', () => {
   const installer = read('install-raspberry-pi.sh');
+  assert.match(installer, /"INITIAL_ADMIN_PASSWORD=\$cinema_password"/);
   assert.match(installer, /compose -f compose\.pi\.yaml pull cinema/);
   assert.ok(installer.includes(`APP_IMAGE=ghcr.io/hattimon/cinema-hub:${version}`));
   assert.ok(installer.includes(`APP_IMAGE=cinema-hub:local-${version}`));
@@ -89,6 +100,13 @@ test('GitHub Release can only be created after both native architectures publish
   const workflow = read('.github/workflows/container.yml');
   assert.match(workflow, /release:\s+if: github\.ref_type == 'tag'\s+needs: publish/);
   assert.match(workflow, /gh release create "v\$version" --verify-tag/);
-  assert.match(workflow, /SHA256SUMS-AndroidTV-v\$version\.txt/);
+  assert.match(workflow, /SHA256SUMS-AndroidTV-v\$apk_version\.txt/);
   assert.match(workflow, /SHA256SUMS-Server-v\$version\.txt/);
+  assert.doesNotMatch(workflow, /"releases\/CinemaHub-AndroidTV-v\$version\.apk"/);
+  assert.doesNotMatch(workflow, /"releases\/SHA256SUMS-AndroidTV-v\$version\.txt"/);
+  const ghRelease = workflow.slice(workflow.indexOf('gh release create'));
+  assert.match(ghRelease, /"releases\/CinemaHub-AndroidTV-v\$apk_version\.apk"/);
+  assert.match(ghRelease, /"releases\/SHA256SUMS-AndroidTV-v\$apk_version\.txt"/);
+  assert.doesNotMatch(ghRelease, /"releases\/CinemaHub-AndroidTV-v\$version\.apk"/);
+  assert.match(workflow, /\.androidTvClient\.version/);
 });

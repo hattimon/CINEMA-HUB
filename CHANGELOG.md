@@ -1,5 +1,17 @@
 # Historia wydań
 
+## Serwer 1.3.27 — korekta presetów Stargate (bez wydania Android TV)
+
+- Skorygowano playlisty `stargate_chronologia_cinema_hub.json` i
+  `stargate_od_s08_cinema_hub.json`: Atlantis S01E18 „The Gift” ma
+  oznaczenie `unverified` bez automatycznego wiązania z niepotwierdzonym źródłem.
+- Rozdzielono wersję serwera i klienta w pakowaniu oraz GitHub Actions:
+  serwer `1.3.27`, istniejący Android TV `1.3.26` (`versionCode` 18).
+- Obraz GHCR dla `linux/amd64` i `linux/arm64` nadal udostępnia APK 1.3.26
+  przez `/download/cinema-hub.apk`. Release serwera nie publikuje nowego APK.
+- Uaktualniono instalatory, Compose i instrukcję odświeżenia katalogu DCC.
+  [Opis wydania](docs/RELEASE-1.3.27.md).
+
 ## Serwer i Android TV 1.3.26 — nawigacja TV, playlisty i sesje źródeł
 
 - Menu Android TV zawiera dziewięć pozycji: Biblioteka, Filmy, Seriale,

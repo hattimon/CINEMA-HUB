@@ -37,5 +37,6 @@ COPY Dockerfile .dockerignore ./
 COPY .github/workflows/container.yml ./.github/workflows/container.yml
 COPY ops/package-server.ps1 ./ops/package-server.ps1
 COPY releases/CinemaHub-AndroidTV-v1.3.26.apk ./releases/CinemaHub-AndroidTV-v1.3.26.apk
+COPY releases/SHA256SUMS-AndroidTV-v1.3.26.txt ./releases/SHA256SUMS-AndroidTV-v1.3.26.txt
 
 FROM runtime AS release

@@ -8,14 +8,21 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path.TrimEnd('\')
 $package = Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
 $version = [string]$package.version
 if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "Invalid package version: $version" }
-$apkEntry = "releases/CinemaHub-AndroidTV-v$version.apk"
+$apkVersion = [string]$package.androidTvClientVersion
+if ($apkVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "Invalid Android TV client version: $apkVersion" }
+$apkEntry = "releases/CinemaHub-AndroidTV-v$apkVersion.apk"
 $apk = Join-Path $root $apkEntry
 if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Missing release input: $apkEntry" }
 $apkHash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
 $out = Join-Path $root 'releases'
 [void](New-Item -ItemType Directory -Path $out -Force)
-$apkChecksum = "SHA256SUMS-AndroidTV-v$version.txt"
-"$apkHash  CinemaHub-AndroidTV-v$version.apk" | Set-Content -LiteralPath (Join-Path $out $apkChecksum) -Encoding ascii
+$apkChecksum = "SHA256SUMS-AndroidTV-v$apkVersion.txt"
+$checksumPath = Join-Path $out $apkChecksum
+if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) { throw "Missing release input: releases/$apkChecksum" }
+$expectedApkChecksum = "$apkHash  CinemaHub-AndroidTV-v$apkVersion.apk"
+if ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -cne $expectedApkChecksum) {
+  throw "Android TV client checksum mismatch: releases/$apkChecksum"
+}
 
 # Archive only explicit project inputs. Never recursively archive the workspace,
 # which can contain user accounts, browser profiles, SQLite databases and secrets.
@@ -75,6 +82,8 @@ try {
   $entries = @($check.Entries | ForEach-Object FullName)
   foreach ($expected in @('server/stargate-identity.mjs','server/stargate-playlists.mjs',
       'server/playback-identity.mjs',
+      'public/playlists/stargate_chronologia_cinema_hub.json',
+      'public/playlists/stargate_od_s08_cinema_hub.json',
       'src/playlistProgress.ts','tests/stargate.test.mjs',
       'tests/playlist-migration.test.mjs','tests/playlist-journal.test.mjs',
       'tests/release-ci.test.mjs','.github/workflows/container.yml',
@@ -91,8 +100,8 @@ $manifest = [ordered]@{
   status = 'local_prepared_unpublished'
   artifact = [ordered]@{ path = "releases/$filename"; bytes = (Get-Item $archive).Length; sha256 = $hash; entries = $paths.Count }
   image = [ordered]@{ repository = 'ghcr.io/hattimon/cinema-hub'; tag = $version; platforms = @('linux/amd64','linux/arm64'); published = $false }
-  androidTvClient = [ordered]@{ version = $version; packagedInContainer = $true; hardwareVerified = $false; sha256 = $apkHash }
-  audit = [ordered]@{ scope = 'archived_metadata_only'; episodes = 314; verifiedVideoFrames = 0; unavailable = @('SGA S01E09') }
+  androidTvClient = [ordered]@{ version = $apkVersion; packagedInContainer = $true; githubReleaseAsset = $true; reusedUnchanged = $true; hardwareVerified = $false; sha256 = $apkHash }
+  audit = [ordered]@{ scope = 'archived_metadata_only'; episodes = 314; verifiedVideoFrames = 0; unavailable = @('SGA S01E09'); unverified = @('SGA S01E18') }
 }
 $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $out "CinemaHub-v$version-manifest.json") -Encoding utf8
 "$hash  $filename" | Set-Content -LiteralPath (Join-Path $out "SHA256SUMS-Server-v$version.txt") -Encoding ascii
