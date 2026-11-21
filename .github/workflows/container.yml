@@ -76,11 +76,13 @@ jobs:
             "$IMAGE:$VERSION-$ARCH-test" \
             -c 'Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >/tmp/test-xvfb.log 2>&1 & exec node --test tests/*.test.mjs'
       - name: Push tested architecture
+        if: github.ref_type == 'tag'
         env:
           VERSION: ${{ steps.version.outputs.value }}
           ARCH: ${{ matrix.arch }}
         run: docker push "$IMAGE:$VERSION-$ARCH"
   publish:
+    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10

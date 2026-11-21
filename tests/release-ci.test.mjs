@@ -73,3 +73,9 @@ test('ARM64 fullscreen browser test exercises playback through a VP8 WebM fixtur
   assert.doesNotMatch(suite, /Hosted ARM64 Chromium cannot decode/);
   assert.match(suite, /Fullscreen WebM playback fixture did not start/);
 });
+
+test('Manual CI runs on main validate both architectures without publishing an untagged release', () => {
+  const workflow = read('.github/workflows/container.yml');
+  assert.match(workflow, /name: Push tested architecture\s+if: github\.ref_type == 'tag'/);
+  assert.match(workflow, /publish:\s+if: github\.ref_type == 'tag'/);
+});
