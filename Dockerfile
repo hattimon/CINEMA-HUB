@@ -30,6 +30,7 @@ CMD ["sh", "/app/ops/start.sh"]
 FROM runtime AS ci_test
 COPY --from=frontend /app/node_modules/typescript ./node_modules/typescript
 COPY tests ./tests
+COPY android/app/src/main/java/pl/cinemahub/tv/MainActivity.java ./android/app/src/main/java/pl/cinemahub/tv/MainActivity.java
 COPY src ./src
 COPY install-windows.ps1 install-raspberry-pi.sh ./
 COPY Dockerfile .dockerignore ./
