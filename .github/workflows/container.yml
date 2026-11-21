@@ -175,6 +175,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version=$(node -p "require('./package.json').version")
+          apk_version=$(node -p "require('./package.json').androidTvClientVersion")
           gh release create "v$version" --verify-tag --latest \
             --title "Cinema Hub $version" \
             --notes-file "docs/RELEASE-$version.md" \

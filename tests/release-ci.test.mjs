@@ -100,6 +100,8 @@ test('GitHub Release can only be created after both native architectures publish
   const workflow = read('.github/workflows/container.yml');
   assert.match(workflow, /release:\s+if: github\.ref_type == 'tag'\s+needs: publish/);
   assert.match(workflow, /gh release create "v\$version" --verify-tag/);
+  const releaseStep = workflow.slice(workflow.indexOf('      - name: Publish GitHub Release'));
+  assert.match(releaseStep, /apk_version=\$\(node -p "require\('\.\/package\.json'\)\.androidTvClientVersion"\)/);
   assert.match(workflow, /SHA256SUMS-AndroidTV-v\$apk_version\.txt/);
   assert.match(workflow, /SHA256SUMS-Server-v\$version\.txt/);
   assert.doesNotMatch(workflow, /"releases\/CinemaHub-AndroidTV-v\$version\.apk"/);
