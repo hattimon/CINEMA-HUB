@@ -9,7 +9,7 @@ permissions:
   packages: write
 concurrency:
   group: container-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 jobs:
   build:
     strategy:
