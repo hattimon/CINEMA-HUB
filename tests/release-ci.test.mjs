@@ -37,7 +37,8 @@ test('CI tests the full application with its dev-only TypeScript dependency befo
   assert.match(workflow, /target: release/);
   assert.match(workflow, /--target ci_test/);
   assert.match(workflow, /sh -n install-raspberry-pi\.sh/);
-  assert.ok(workflow.indexOf('node --test tests/*.test.mjs') < workflow.indexOf('push: true'));
+  assert.match(workflow, /timeout-minutes: 15/);
+  assert.ok(workflow.indexOf('node --test --test-force-exit --test-timeout=180000 tests/*.test.mjs') < workflow.indexOf('push: true'));
 });
 
 test('Windows installer separates local builds from published GHCR images', () => {

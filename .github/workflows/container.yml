@@ -66,6 +66,7 @@ jobs:
             --cache-from "type=gha,scope=$ARCH" \
             --tag "$IMAGE:$VERSION-$ARCH-test" .
       - name: Test application in native container
+        timeout-minutes: 15
         env:
           VERSION: ${{ steps.version.outputs.value }}
           ARCH: ${{ matrix.arch }}
@@ -73,7 +74,7 @@ jobs:
           docker run --rm --cpus 4 --memory 3g --shm-size 512m --pids-limit 512 \
             --entrypoint sh -e NODE_ENV=test -e BROWSER_CLOSE_AFTER_WORK=true \
             "$IMAGE:$VERSION-$ARCH-test" \
-            -c 'Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >/tmp/test-xvfb.log 2>&1 & exec node --test tests/*.test.mjs'
+            -c 'Xvfb :99 -screen 0 1600x1200x24 -nolisten tcp >/tmp/test-xvfb.log 2>&1 & exec node --test --test-force-exit --test-timeout=180000 tests/*.test.mjs'
   publish_arch:
     if: github.ref_type == 'tag'
     needs: build
